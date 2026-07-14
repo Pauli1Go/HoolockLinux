@@ -2679,6 +2679,7 @@ M:	Paul Praschl <praschlpaul@g-p.at>
 L:	asahi@lists.linux.dev
 S:	Maintained
 F:	Documentation/devicetree/bindings/dma/apple,sio.yaml
+F:	drivers/dma/apple-sio-dma.c
 F:	drivers/soc/apple/apple-sio-core.c
 F:	include/linux/soc/apple/sio.h
 

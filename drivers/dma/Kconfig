@@ -92,6 +92,17 @@ config APPLE_ADMAC
 	help
 	  Enable support for Audio DMA Controller found on Apple Silicon SoCs.
 
+config APPLE_SIO_DMA
+	tristate "Apple T8010 SmartIO DMA support"
+	depends on APPLE_SIO
+	select DMA_ENGINE
+	select DMA_VIRTUAL_CHANNELS
+	help
+	  Enable support for the DMA service provided by the SmartIO
+	  coprocessor on Apple T8010 SoCs. The first supported client is the
+	  SPI3 transmit channel used by the touchscreen controller. Transfers
+	  are submitted through the SmartIO firmware endpoint protocol.
+
 config ARM_DMA350
 	tristate "Arm DMA-350 support"
 	depends on ARM || ARM64 || COMPILE_TEST
