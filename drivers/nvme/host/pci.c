@@ -30,6 +30,9 @@
 
 #include "trace.h"
 #include "nvme.h"
+#include "pci-internal.h"
+
+#define PCI_DEVICE_ID_APPLE_ANS_NVME	0x2002
 
 #define SQ_SIZE(q)	((q)->q_depth << (q)->sqes)
 #define CQ_SIZE(q)	((q)->q_depth * sizeof(struct nvme_completion))
@@ -41,7 +44,6 @@
  * Arbitrary upper bound.
  */
 #define NVME_MAX_BYTES		SZ_8M
-#define NVME_MAX_NR_DESCRIPTORS	5
 
 /*
  * For data SGLs we support a single descriptors worth of SGL entries.
@@ -276,66 +278,9 @@ static bool noacpi;
 module_param(noacpi, bool, 0444);
 MODULE_PARM_DESC(noacpi, "disable acpi bios quirks");
 
-struct nvme_dev;
-struct nvme_queue;
-
 static void nvme_dev_disable(struct nvme_dev *dev, bool shutdown);
 static void nvme_delete_io_queues(struct nvme_dev *dev);
 static void nvme_update_attrs(struct nvme_dev *dev);
-
-struct nvme_descriptor_pools {
-	struct dma_pool *large;
-	struct dma_pool *small;
-};
-
-/*
- * Represents an NVM Express device.  Each nvme_dev is a PCI function.
- */
-struct nvme_dev {
-	struct nvme_queue *queues;
-	struct blk_mq_tag_set tagset;
-	struct blk_mq_tag_set admin_tagset;
-	u32 __iomem *dbs;
-	struct device *dev;
-	unsigned online_queues;
-	unsigned max_qid;
-	unsigned io_queues[HCTX_MAX_TYPES];
-	unsigned int num_vecs;
-	u32 q_depth;
-	int io_sqes;
-	u32 db_stride;
-	void __iomem *bar;
-	unsigned long bar_mapped_size;
-	struct mutex shutdown_lock;
-	bool subsystem;
-	u64 cmb_size;
-	bool cmb_use_sqes;
-	u32 cmbsz;
-	u32 cmbloc;
-	struct nvme_ctrl ctrl;
-	u32 last_ps;
-	bool hmb;
-	struct sg_table *hmb_sgt;
-	mempool_t *dmavec_mempool;
-
-	/* shadow doorbell buffer support: */
-	__le32 *dbbuf_dbs;
-	dma_addr_t dbbuf_dbs_dma_addr;
-	__le32 *dbbuf_eis;
-	dma_addr_t dbbuf_eis_dma_addr;
-
-	/* host memory buffer support: */
-	u64 host_mem_size;
-	u32 nr_host_mem_descs;
-	u32 host_mem_descs_size;
-	dma_addr_t host_mem_descs_dma;
-	struct nvme_host_mem_buf_desc *host_mem_descs;
-	void **host_mem_desc_bufs;
-	unsigned int nr_allocated_queues;
-	unsigned int nr_write_queues;
-	unsigned int nr_poll_queues;
-	struct nvme_descriptor_pools descriptor_pools[];
-};
 
 static int io_queue_depth_set(const char *val, const struct kernel_param *kp)
 {
@@ -357,94 +302,6 @@ static inline struct nvme_dev *to_nvme_dev(struct nvme_ctrl *ctrl)
 {
 	return container_of(ctrl, struct nvme_dev, ctrl);
 }
-
-/*
- * An NVM Express queue.  Each device has at least two (one for admin
- * commands and one for I/O commands).
- */
-struct nvme_queue {
-	struct nvme_dev *dev;
-	struct nvme_descriptor_pools descriptor_pools;
-	spinlock_t sq_lock;
-	void *sq_cmds;
-	 /* only used for poll queues: */
-	spinlock_t cq_poll_lock ____cacheline_aligned_in_smp;
-	struct nvme_completion *cqes;
-	dma_addr_t sq_dma_addr;
-	dma_addr_t cq_dma_addr;
-	u32 __iomem *q_db;
-	u32 q_depth;
-	u16 cq_vector;
-	u16 sq_tail;
-	u16 last_sq_tail;
-	u16 cq_head;
-	u16 qid;
-	u8 cq_phase;
-	u8 sqes;
-	unsigned long flags;
-#define NVMEQ_ENABLED		0
-#define NVMEQ_SQ_CMB		1
-#define NVMEQ_DELETE_ERROR	2
-#define NVMEQ_POLLED		3
-	__le32 *dbbuf_sq_db;
-	__le32 *dbbuf_cq_db;
-	__le32 *dbbuf_sq_ei;
-	__le32 *dbbuf_cq_ei;
-	struct completion delete_done;
-};
-
-/* bits for iod->flags */
-enum nvme_iod_flags {
-	/* this command has been aborted by the timeout handler */
-	IOD_ABORTED		= 1U << 0,
-
-	/* uses the small descriptor pool */
-	IOD_SMALL_DESCRIPTOR	= 1U << 1,
-
-	/* single segment dma mapping */
-	IOD_SINGLE_SEGMENT	= 1U << 2,
-
-	/* Data payload contains p2p memory */
-	IOD_DATA_P2P		= 1U << 3,
-
-	/* Metadata contains p2p memory */
-	IOD_META_P2P		= 1U << 4,
-
-	/* Data payload contains MMIO memory */
-	IOD_DATA_MMIO		= 1U << 5,
-
-	/* Metadata contains MMIO memory */
-	IOD_META_MMIO		= 1U << 6,
-
-	/* Metadata using non-coalesced MPTR */
-	IOD_SINGLE_META_SEGMENT	= 1U << 7,
-};
-
-struct nvme_dma_vec {
-	dma_addr_t addr;
-	unsigned int len;
-};
-
-/*
- * The nvme_iod describes the data in an I/O.
- */
-struct nvme_iod {
-	struct nvme_request req;
-	struct nvme_command cmd;
-	u8 flags;
-	u8 nr_descriptors;
-
-	size_t total_len;
-	struct dma_iova_state dma_state;
-	void *descriptors[NVME_MAX_NR_DESCRIPTORS];
-	struct nvme_dma_vec *dma_vecs;
-	unsigned int nr_dma_vecs;
-
-	dma_addr_t meta_dma;
-	size_t meta_total_len;
-	struct dma_iova_state meta_dma_state;
-	struct nvme_sgl_desc *meta_descriptor;
-};
 
 static inline unsigned int nvme_dbbuf_size(struct nvme_dev *dev)
 {
@@ -937,6 +794,10 @@ static void nvme_unmap_data(struct request *req)
 	struct device *dma_dev = nvmeq->dev->dev;
 	unsigned int attrs = 0;
 
+	if (nvmeq->dev->dma_ops && nvmeq->dev->dma_ops->unmap_data &&
+	    nvmeq->dev->dma_ops->unmap_data(req))
+		return;
+
 	if (iod->flags & IOD_SINGLE_SEGMENT) {
 		static_assert(offsetof(union nvme_data_ptr, prp1) ==
 				offsetof(union nvme_data_ptr, sgl.addr));
@@ -1251,6 +1112,12 @@ static blk_status_t nvme_map_data(struct request *req)
 	struct blk_dma_iter iter;
 	blk_status_t ret;
 
+	if (dev->dma_ops && dev->dma_ops->map_data) {
+		ret = dev->dma_ops->map_data(req);
+		if (ret != BLK_STS_NOTSUPP)
+			return ret;
+	}
+
 	/*
 	 * Try to skip the DMA iterator for single segment requests, as that
 	 * significantly improves performances for small I/O sizes.
@@ -1406,6 +1273,8 @@ static blk_status_t nvme_prep_rq(struct request *req)
 	iod->total_len = 0;
 	iod->meta_total_len = 0;
 	iod->nr_dma_vecs = 0;
+	iod->dma_vecs = NULL;
+	iod->dma_private = NULL;
 
 	ret = nvme_setup_cmd(req->q->queuedata, req);
 	if (ret)
@@ -2391,6 +2260,12 @@ static int nvme_pci_configure_admin_queue(struct nvme_dev *dev)
 	lo_hi_writeq(nvmeq->sq_dma_addr, dev->bar + NVME_REG_ASQ);
 	lo_hi_writeq(nvmeq->cq_dma_addr, dev->bar + NVME_REG_ACQ);
 
+	if (dev->dma_ops && dev->dma_ops->prepare_enable) {
+		result = dev->dma_ops->prepare_enable(dev);
+		if (result)
+			return result;
+	}
+
 	result = nvme_enable_ctrl(&dev->ctrl);
 	if (result)
 		return result;
@@ -3255,7 +3130,15 @@ static int nvme_pci_enable(struct nvme_dev *dev)
 		dev_warn(dev->ctrl.device, "IO queue depth clamped to %d\n",
 			 dev->q_depth);
 	}
+	if (dev->dma_ops && dev->dma_ops->queue_depth)
+		dev->q_depth = dev->dma_ops->queue_depth(dev, dev->q_depth);
 	dev->ctrl.sqsize = dev->q_depth - 1; /* 0's based queue depth */
+
+	if (dev->dma_ops && dev->dma_ops->preinit) {
+		result = dev->dma_ops->preinit(dev);
+		if (result)
+			goto free_irq;
+	}
 
 	nvme_map_cmb(dev);
 
@@ -3377,6 +3260,8 @@ static void nvme_pci_free_ctrl(struct nvme_ctrl *ctrl)
 	struct nvme_dev *dev = to_nvme_dev(ctrl);
 
 	nvme_free_tagset(dev);
+	if (dev->dma_ops && dev->dma_ops->exit)
+		dev->dma_ops->exit(dev);
 	put_device(dev->dev);
 	kfree(dev->queues);
 	kfree(dev);
@@ -3713,6 +3598,14 @@ static struct nvme_dev *nvme_pci_alloc_dev(struct pci_dev *pdev,
 		quirks |= qentry->enabled_quirks;
 		quirks &= ~qentry->disabled_quirks;
 	}
+	if (pdev->vendor == PCI_VENDOR_ID_APPLE &&
+	    pdev->device == PCI_DEVICE_ID_APPLE_ANS_NVME)
+		dev->dma_ops = &nvme_pci_apple_ans_ops;
+	if (dev->dma_ops) {
+		ret = dev->dma_ops->init(dev, node);
+		if (ret)
+			goto out_put_device;
+	}
 	ret = nvme_init_ctrl(&dev->ctrl, &pdev->dev, &nvme_pci_ctrl_ops,
 			     quirks);
 	if (ret)
@@ -3732,11 +3625,17 @@ static struct nvme_dev *nvme_pci_alloc_dev(struct pci_dev *pdev,
 	dev->ctrl.max_hw_sectors = min_t(u32,
 			NVME_MAX_BYTES >> SECTOR_SHIFT,
 			dma_opt_mapping_size(&pdev->dev) >> 9);
+	if (dev->dma_ops && dev->dma_ops->max_hw_sectors)
+		dev->ctrl.max_hw_sectors =
+			dev->dma_ops->max_hw_sectors(dev,
+						     dev->ctrl.max_hw_sectors);
 	dev->ctrl.max_segments = NVME_MAX_SEGS;
 	dev->ctrl.max_integrity_segments = 1;
 	return dev;
 
 out_put_device:
+	if (dev->dma_ops && dev->dma_ops->exit)
+		dev->dma_ops->exit(dev);
 	put_device(dev->dev);
 	kfree(dev->queues);
 out_free_dev:
@@ -4278,6 +4177,9 @@ static const struct pci_device_id nvme_id_table[] = {
 		 */
 		.driver_data = NVME_QUIRK_SINGLE_VECTOR |
 				NVME_QUIRK_QDEPTH_ONE },
+	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, PCI_DEVICE_ID_APPLE_ANS_NVME),
+		.driver_data = NVME_QUIRK_SINGLE_VECTOR |
+				NVME_QUIRK_SHARED_TAGS },
 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2003) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x2005),
 		.driver_data = NVME_QUIRK_SINGLE_VECTOR |
