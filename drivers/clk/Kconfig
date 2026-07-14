@@ -66,6 +66,16 @@ config COMMON_CLK_APPLE_NCO
 	  found on Apple SoCs such as t8103 (M1). The blocks are typically
 	  generators of audio clocks.
 
+config COMMON_CLK_APPLE_T8010_TOUCH
+	bool "Clock driver for Apple T8010 touchscreens"
+	depends on ARCH_APPLE || COMPILE_TEST
+	default ARCH_APPLE
+	help
+	  This driver supports the PMGR clock gate and divider used by
+	  touchscreen controllers on A10/T8010 Apple devices. The clock
+	  is required for firmware upload and runtime touch reports on
+	  iPad models using this controller.
+
 config COMMON_CLK_MAX77686
 	tristate "Clock driver for Maxim 77620/77686/77802 MFD"
 	depends on MFD_MAX77686 || MFD_MAX77620 || COMPILE_TEST
