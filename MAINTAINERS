@@ -2667,6 +2667,13 @@ F:	include/linux/mfd/macsmc.h
 F:	include/linux/soc/apple/*
 F:	include/uapi/drm/asahi_drm.h
 
+APPLE T8010 SPI SUPPORT
+M:	Paul Praschl <praschlpaul@g-p.at>
+L:	asahi@lists.linux.dev
+L:	linux-spi@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/spi/apple,spi.yaml
+
 APPLE T8010 TOUCH CLOCK SUPPORT
 M:	Paul Praschl <praschlpaul@g-p.at>
 L:	asahi@lists.linux.dev
