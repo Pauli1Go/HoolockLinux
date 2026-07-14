@@ -1,0 +1,249 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/pci/apple,t8010-pcie.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Apple T8010 PCIe host controller
+
+maintainers:
+  - Paul Praschl <praschlpaul@g-p.at>
+
+description: |
+  Apple A10/T8010 devices use the H9P PCIe root complex for internal
+  storage and Wi-Fi. It exposes one ECAM window shared by up to four root
+  ports, controller-specific PHY and port register windows, and a local MSI
+  block.
+
+  The storage port also contains an NVMMU which translates the proprietary
+  Apple ANS FlatDMA format. Unlike a general-purpose IOMMU, this block uses a
+  loader-provided, physically contiguous host-memory buffer and a fixed IOVA
+  window. The PCIe driver owns that NVMMU state and exposes it only to the ANS
+  NVMe glue.
+
+  Each enabled root port is represented by a child node. This allows port
+  devices to carry their own reset, clock-request, firmware and other
+  device-specific properties.
+
+allOf:
+  - $ref: /schemas/pci/pci-host-bridge.yaml#
+  - $ref: /schemas/interrupt-controller/msi-controller.yaml#
+
+properties:
+  compatible:
+    const: apple,t8010-pcie
+
+  reg:
+    maxItems: 9
+
+  reg-names:
+    items:
+      - const: config
+      - const: rc
+      - const: phy
+      - const: phy-ip
+      - const: port0
+      - const: port1
+      - const: port2
+      - const: port3
+      - const: nvmmu
+
+  interrupts:
+    description:
+      One state interrupt for each root port followed by the storage-port
+      NVMMU fault interrupt.
+    maxItems: 5
+
+  interrupt-names:
+    items:
+      - const: port0
+      - const: port1
+      - const: port2
+      - const: port3
+      - const: nvmmu
+
+  clocks:
+    maxItems: 3
+
+  clock-names:
+    items:
+      - const: core
+      - const: aux
+      - const: ref
+
+  power-domains:
+    maxItems: 3
+
+  power-domain-names:
+    items:
+      - const: core
+      - const: aux
+      - const: ref
+
+  devpwr-gpios:
+    description:
+      Optional device power GPIOs shared by the root ports.
+    maxItems: 4
+
+  msi-parent: true
+
+  msi-ranges:
+    maxItems: 1
+
+  apple,msi-doorbell:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      MSI doorbell address programmed into downstream endpoints.
+
+  apple,nvmmu-iova:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      Base device-visible address of the storage-port NVMMU window.
+
+  apple,nvme-hmb:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description:
+      Phandle of the loader-populated reserved-memory node used as the Apple
+      ANS NVMe host-memory buffer.
+
+  interrupt-controller: true
+
+  '#interrupt-cells':
+    const: 1
+
+patternProperties:
+  '^pci@[0-3],0$':
+    type: object
+    properties:
+      reg:
+        maxItems: 1
+
+      reset-gpios:
+        maxItems: 1
+
+      clkreq-gpios:
+        maxItems: 1
+
+    required:
+      - reg
+      - reset-gpios
+      - clkreq-gpios
+
+    additionalProperties: true
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - interrupts
+  - interrupt-names
+  - clocks
+  - clock-names
+  - power-domains
+  - power-domain-names
+  - bus-range
+  - ranges
+  - msi-controller
+  - msi-parent
+  - msi-ranges
+  - apple,nvmmu-iova
+  - apple,nvme-hmb
+  - '#interrupt-cells'
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+    #include <dt-bindings/interrupt-controller/apple-aic.h>
+
+    / {
+        #address-cells = <2>;
+        #size-cells = <2>;
+
+        aliases {
+            nvme-hmb = &nvme_hmb;
+        };
+
+        aic: interrupt-controller {
+            interrupt-controller;
+            #interrupt-cells = <3>;
+        };
+
+        reserved-memory {
+            #address-cells = <2>;
+            #size-cells = <2>;
+            ranges;
+
+            nvme_hmb: nvme-hmb@0 {
+                reg = <0x0 0x0 0x0 0x0>; /* To be filled by loader */
+                no-map;
+            };
+        };
+
+        soc {
+            #address-cells = <2>;
+            #size-cells = <2>;
+
+            pcie0: pcie@610000000 {
+                compatible = "apple,t8010-pcie";
+                device_type = "pci";
+
+                reg = <0x6 0x10000000 0x0 0x1000000>,
+                      <0x6 0x00000000 0x0 0x8000>,
+                      <0x6 0x00008000 0x0 0x4000>,
+                      <0x6 0x0a000000 0x0 0x40000>,
+                      <0x6 0x01000000 0x0 0x4000>,
+                      <0x6 0x02000000 0x0 0x4000>,
+                      <0x6 0x03000000 0x0 0x4000>,
+                      <0x6 0x04000000 0x0 0x4000>,
+                      <0x6 0x01004000 0x0 0x4000>;
+                reg-names = "config", "rc", "phy", "phy-ip",
+                            "port0", "port1", "port2", "port3",
+                            "nvmmu";
+
+                interrupt-parent = <&aic>;
+                interrupts = <AIC_IRQ 270 IRQ_TYPE_LEVEL_HIGH>,
+                             <AIC_IRQ 273 IRQ_TYPE_LEVEL_HIGH>,
+                             <AIC_IRQ 276 IRQ_TYPE_LEVEL_HIGH>,
+                             <AIC_IRQ 279 IRQ_TYPE_LEVEL_HIGH>,
+                             <AIC_IRQ 272 IRQ_TYPE_EDGE_RISING>;
+                interrupt-names = "port0", "port1", "port2", "port3",
+                                  "nvmmu";
+
+                msi-controller;
+                msi-parent = <&pcie0>;
+                msi-ranges = <&aic AIC_IRQ 288 IRQ_TYPE_EDGE_RISING 32>;
+                apple,msi-doorbell = <0xbffff000>;
+                apple,nvmmu-iova = <0xbc000000>;
+                apple,nvme-hmb = <&nvme_hmb>;
+
+                #address-cells = <3>;
+                #size-cells = <2>;
+                #interrupt-cells = <1>;
+                interrupt-controller;
+                bus-range = <0x00 0x0f>;
+                ranges = <0x03000000 0x0 0xc0000000
+                          0x7 0xc0000000 0x0 0x40000000>;
+
+                clocks = <&clkref>, <&clkref>, <&clkref>;
+                clock-names = "core", "aux", "ref";
+                power-domains = <&ps_pcie>, <&ps_pcie_aux>,
+                                <&ps_pcie_ref>;
+                power-domain-names = "core", "aux", "ref";
+
+                pci@0,0 {
+                    device_type = "pci";
+                    reg = <0x0 0x0 0x0 0x0 0x0>;
+                    reset-gpios = <&pinctrl_ap 12 GPIO_ACTIVE_LOW>;
+                    clkreq-gpios = <&pinctrl_ap 16 GPIO_ACTIVE_LOW>;
+
+                    #address-cells = <3>;
+                    #size-cells = <2>;
+                    ranges;
+                };
+            };
+        };
+    };
+
+...
