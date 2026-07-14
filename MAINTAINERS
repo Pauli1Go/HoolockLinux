@@ -2674,6 +2674,12 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/clock/apple,t8010-touch-clock.yaml
 F:	drivers/clk/clk-apple-t8010-touch.c
 
+APPLE SMARTIO SUPPORT
+M:	Paul Praschl <praschlpaul@g-p.at>
+L:	asahi@lists.linux.dev
+S:	Maintained
+F:	Documentation/devicetree/bindings/dma/apple,sio.yaml
+
 APPLE T8010 PCIE AND ANS SUPPORT
 M:	Paul Praschl <praschlpaul@g-p.at>
 L:	asahi@lists.linux.dev
