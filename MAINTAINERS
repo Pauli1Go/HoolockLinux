@@ -2673,6 +2673,7 @@ L:	asahi@lists.linux.dev
 L:	linux-input@vger.kernel.org
 S:	Maintained
 F:	Documentation/devicetree/bindings/input/touchscreen/apple,z2-multitouch.yaml
+F:	drivers/input/touchscreen/apple_z2.c
 
 APPLE T8010 SPI SUPPORT
 M:	Paul Praschl <praschlpaul@g-p.at>
