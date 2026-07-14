@@ -8,24 +8,53 @@ title: Apple touchscreens attached using the Z2 protocol
 
 maintainers:
   - Sasha Finkelstein <k@chaosmail.tech>
+  - Paul Praschl <praschlpaul@g-p.at>
 
-description: A series of touschscreen controllers used in Apple products
-
-allOf:
-  - $ref: touchscreen.yaml#
-  - $ref: /schemas/spi/spi-peripheral-props.yaml#
+description: A series of touchscreen controllers used in Apple products
 
 properties:
   compatible:
     enum:
       - apple,j293-touchbar
       - apple,j493-touchbar
+      - apple,j172-touchscreen
 
   interrupts:
     maxItems: 1
 
   reset-gpios:
     maxItems: 1
+
+  power-ana-gpios:
+    maxItems: 1
+
+  power-ldo-gpios:
+    maxItems: 1
+
+  display-sync-gpios:
+    maxItems: 1
+
+  display-sync1-gpios:
+    maxItems: 1
+
+  spi-cpha: true
+
+  spi-cpol: true
+
+  clocks:
+    maxItems: 1
+
+  apple,z2-bpw16-min-len:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      Minimum firmware blob length sent using 16 bits per word.
+    default: 1
+
+  apple,z2-no-init-ack:
+    description:
+      Do not append the standard 0x1a 0xa1 ACK transfer after the initial
+      firmware payload.
+    type: boolean
 
   firmware-name:
     maxItems: 1
@@ -43,6 +72,30 @@ required:
   - firmware-name
   - touchscreen-size-x
   - touchscreen-size-y
+
+allOf:
+  - $ref: touchscreen.yaml#
+  - $ref: /schemas/spi/spi-peripheral-props.yaml#
+  - if:
+      properties:
+        compatible:
+          const: apple,j172-touchscreen
+    then:
+      properties:
+        pinctrl-names:
+          const: display-sync-active
+      required:
+        - clocks
+        - power-ana-gpios
+        - power-ldo-gpios
+        - display-sync-gpios
+        - display-sync1-gpios
+        - pinctrl-0
+        - pinctrl-names
+        - spi-cpha
+        - spi-cpol
+        - apple,z2-bpw16-min-len
+        - apple,z2-no-init-ack
 
 unevaluatedProperties: false
 
