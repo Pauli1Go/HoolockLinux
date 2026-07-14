@@ -52,6 +52,9 @@ properties:
   "#size-cells":
     const: 1
 
+  clock-controller@78000:
+    $ref: /schemas/clock/apple,t8010-touch-clock.yaml#
+
 patternProperties:
   "power-controller@[0-9a-f]+$":
     description:

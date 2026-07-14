@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/apple,t8010-touch-clock.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Apple T8010 touchscreen clock controller
+
+maintainers:
+  - Paul Praschl <praschlpaul@g-p.at>
+
+description:
+  The T8010 PMGR contains a gate and integer divider for the 24 MHz clock
+  consumed by the touchscreen controller.
+
+properties:
+  compatible:
+    const: apple,t8010-touch-clock
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+
+  '#clock-cells':
+    const: 0
+
+  clock-output-names:
+    maxItems: 1
+
+  clock-frequency:
+    description: Target clock rate in Hz
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - '#clock-cells'
+  - clock-frequency
+
+additionalProperties: false
+
+examples:
+  - |
+    clock-controller@78000 {
+        compatible = "apple,t8010-touch-clock";
+        reg = <0x78000 0x8>;
+        #clock-cells = <0>;
+        clocks = <&clkref>;
+        clock-output-names = "touchclk";
+        clock-frequency = <24000000>;
+    };
+...
