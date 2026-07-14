@@ -2604,6 +2604,7 @@ F:	Documentation/devicetree/bindings/nvmem/apple,efuses.yaml
 F:	Documentation/devicetree/bindings/nvmem/apple,pmic-nvmem.yaml
 F:	Documentation/devicetree/bindings/nvmem/apple,spmi-nvmem.yaml
 F:	Documentation/devicetree/bindings/pci/apple,pcie.yaml
+F:	Documentation/devicetree/bindings/pci/apple,t8010-pcie.yaml
 F:	Documentation/devicetree/bindings/phy/apple,atcphy.yaml
 F:	Documentation/devicetree/bindings/pinctrl/apple,pinctrl.yaml
 F:	Documentation/devicetree/bindings/power/apple*
@@ -2635,9 +2636,12 @@ F:	drivers/irqchip/irq-apple-aic.c
 F:	drivers/mfd/macsmc.c
 F:      drivers/mfd/simple-mfd-spmi.c
 F:	drivers/nvme/host/apple.c
+F:	drivers/nvme/host/pci-apple-ans.c
+F:	drivers/nvme/host/pci-internal.h
 F:	drivers/nvmem/apple-efuses.c
 F:	drivers/nvmem/apple-spmi-nvmem.c
 F:      drivers/nvmem/simple-mfd-nvmem.c
+F:	drivers/pci/controller/pcie-apple-h9p.c
 F:	drivers/phy/apple/
 F:	drivers/pinctrl/pinctrl-apple-gpio.c
 F:	drivers/power/reset/macsmc-reboot.c
@@ -2653,10 +2657,23 @@ F:	drivers/video/backlight/apple_dwi_bl.c
 F:	drivers/video/backlight/apple_pmic_bl.c
 F:	drivers/watchdog/apple_wdt.c
 F:	include/dt-bindings/interrupt-controller/apple-aic.h
+F:	include/linux/apple-ans.h
 F:	include/dt-bindings/pinctrl/apple.h
 F:	include/linux/mfd/macsmc.h
 F:	include/linux/soc/apple/*
 F:	include/uapi/drm/asahi_drm.h
+
+APPLE T8010 PCIE AND ANS SUPPORT
+M:	Paul Praschl <praschlpaul@g-p.at>
+L:	asahi@lists.linux.dev
+L:	linux-nvme@lists.infradead.org
+L:	linux-pci@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/pci/apple,t8010-pcie.yaml
+F:	drivers/nvme/host/pci-apple-ans.c
+F:	drivers/nvme/host/pci-internal.h
+F:	drivers/pci/controller/pcie-apple-h9p.c
+F:	include/linux/apple-ans.h
 
 ARM/ARTPEC MACHINE SUPPORT
 M:	Jesper Nilsson <jesper.nilsson@axis.com>
