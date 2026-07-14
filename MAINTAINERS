@@ -2673,6 +2673,7 @@ L:	asahi@lists.linux.dev
 L:	linux-input@vger.kernel.org
 S:	Maintained
 F:	Documentation/devicetree/bindings/input/touchscreen/apple,z2-multitouch.yaml
+F:	arch/arm64/boot/dts/apple/t8010-ipad7.dtsi
 F:	drivers/input/touchscreen/apple_z2.c
 
 APPLE T8010 SPI SUPPORT

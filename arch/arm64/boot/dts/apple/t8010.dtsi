@@ -221,6 +221,37 @@
 			status = "disabled";
 		};
 
+		sio: dma-controller@20ae00000 {
+			compatible = "apple,t8010-sio";
+			reg = <0x2 0x0ae00000 0x0 0x10000>,
+			      <0x2 0x0a000000 0x0 0x2000>;
+			reg-names = "a7iop", "shim";
+			interrupt-parent = <&aic>;
+			interrupts = <AIC_IRQ 211 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 210 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 213 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 212 IRQ_TYPE_LEVEL_HIGH>;
+			power-domains = <&ps_sio>;
+			firmware-name = "apple/t8010-smartio.bin";
+			dma-channels = <64>;
+			#dma-cells = <1>;
+			status = "disabled";
+		};
+
+		spi3: spi@20a08c000 {
+			compatible = "apple,t8010-spi", "apple,spi";
+			reg = <0x2 0x0a08c000 0x0 0x4000>;
+			interrupt-parent = <&aic>;
+			interrupts = <AIC_IRQ 217 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clkref>;
+			pinctrl-0 = <&spi3_pins>;
+			pinctrl-names = "default";
+			power-domains = <&ps_spi3>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
 		bus@20c000000 {
 			compatible = "apple,t8010-usb-complex", "apple,s5l8960x-usb-complex", "simple-pm-bus";
 			#address-cells = <2>;
@@ -410,6 +441,12 @@
 			i2c3_pins: i2c3-pins {
 				pinmux = <APPLE_PINMUX(41, 1)>,
 					 <APPLE_PINMUX(42, 1)>;
+			};
+
+			spi3_pins: spi3-pins {
+				pinmux = <APPLE_PINMUX(82, 1)>,
+					 <APPLE_PINMUX(83, 1)>,
+					 <APPLE_PINMUX(84, 1)>;
 			};
 		};
 
