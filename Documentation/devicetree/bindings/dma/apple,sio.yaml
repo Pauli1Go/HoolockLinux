@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/dma/apple,sio.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Apple T8010 SmartIO coprocessor and DMA controller
+
+description: |
+  The T8010 SmartIO coprocessor provides DMA channels for peripheral
+  controllers. The application processor boots the SmartIO firmware and
+  submits DMA commands through the SIO message queues. Clients select the
+  firmware endpoint number used by their peripheral.
+
+maintainers:
+  - Paul Praschl <praschlpaul@g-p.at>
+
+allOf:
+  - $ref: dma-controller.yaml#
+
+properties:
+  compatible:
+    const: apple,t8010-sio
+
+  reg:
+    items:
+      - description: AppleA7IOPV2 coprocessor and message queue registers
+      - description: SmartIO DMA shim registers
+
+  reg-names:
+    items:
+      - const: a7iop
+      - const: shim
+
+  interrupts:
+    minItems: 4
+    maxItems: 4
+    description:
+      The four interrupt outputs described by the T8010 SIO device tree node.
+
+  power-domains:
+    maxItems: 1
+
+  firmware-name:
+    maxItems: 1
+
+  dma-channels:
+    const: 64
+
+  '#dma-cells':
+    const: 1
+    description:
+      Clients specify the SmartIO DMA endpoint number, for example 0x1a for
+      SPI3 transmit and 0x1b for SPI3 receive.
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - interrupts
+  - power-domains
+  - firmware-name
+  - dma-channels
+  - '#dma-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/apple-aic.h>
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    soc {
+      #address-cells = <2>;
+      #size-cells = <2>;
+
+      sio: dma-controller@20ae00000 {
+        compatible = "apple,t8010-sio";
+        reg = <0x2 0x0ae00000 0x0 0x10000>,
+              <0x2 0x0a000000 0x0 0x2000>;
+        reg-names = "a7iop", "shim";
+        interrupts = <AIC_IRQ 211 IRQ_TYPE_LEVEL_HIGH>,
+                     <AIC_IRQ 210 IRQ_TYPE_LEVEL_HIGH>,
+                     <AIC_IRQ 213 IRQ_TYPE_LEVEL_HIGH>,
+                     <AIC_IRQ 212 IRQ_TYPE_LEVEL_HIGH>;
+        power-domains = <&ps_sio>;
+        firmware-name = "apple/t8010-smartio.bin";
+        dma-channels = <64>;
+        #dma-cells = <1>;
+      };
+    };
