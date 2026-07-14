@@ -2582,9 +2582,11 @@ C:	irc://irc.oftc.net/asahi-dev
 T:	git https://github.com/AsahiLinux/linux.git
 F:	Documentation/devicetree/bindings/arm/apple.yaml
 F:	Documentation/devicetree/bindings/arm/apple/*
+F:	Documentation/devicetree/bindings/clock/apple,t8010-touch-clock.yaml
 F:	Documentation/devicetree/bindings/clock/apple,nco.yaml
 F:	Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
 F:	Documentation/devicetree/bindings/dma/apple,admac.yaml
+F:	Documentation/devicetree/bindings/dma/apple,sio.yaml
 F:	Documentation/devicetree/bindings/gpio/apple,smc-gpio.yaml
 F:	Documentation/devicetree/bindings/gpu/apple,agx.yaml
 F:	Documentation/devicetree/bindings/hwmon/apple,smc-hwmon.yaml
@@ -2621,8 +2623,10 @@ F:	Documentation/hwmon/macsmc-hwmon.rst
 F:	arch/arm64/boot/dts/apple/
 F:	drivers/bluetooth/hci_bcm4377.c
 F:	drivers/clk/clk-apple-nco.c
+F:	drivers/clk/clk-apple-t8010-touch.c
 F:	drivers/cpufreq/apple-soc-cpufreq.c
 F:	drivers/dma/apple-admac.c
+F:	drivers/dma/apple-sio-dma.c
 F:	drivers/gpio/gpio-macsmc.c
 F:	drivers/hwmon/macsmc-hwmon.c
 F:	drivers/pmdomain/apple/
@@ -2662,6 +2666,12 @@ F:	include/dt-bindings/pinctrl/apple.h
 F:	include/linux/mfd/macsmc.h
 F:	include/linux/soc/apple/*
 F:	include/uapi/drm/asahi_drm.h
+
+APPLE T8010 TOUCH CLOCK SUPPORT
+M:	Paul Praschl <praschlpaul@g-p.at>
+L:	asahi@lists.linux.dev
+S:	Maintained
+F:	Documentation/devicetree/bindings/clock/apple,t8010-touch-clock.yaml
 
 APPLE T8010 PCIE AND ANS SUPPORT
 M:	Paul Praschl <praschlpaul@g-p.at>
