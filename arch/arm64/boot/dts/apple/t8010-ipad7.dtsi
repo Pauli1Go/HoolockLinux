@@ -12,3 +12,57 @@
  * now.
  */
 #include "t8010-ipad6.dtsi"
+
+/ {
+	spi3_nclk: clock-spi3-nclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <55384615>;
+		clock-output-names = "spi3-nclk";
+	};
+};
+
+&pinctrl_ap {
+	touch_display_sync_active: touch-display-sync-active-pins {
+		pinmux = <APPLE_PINMUX(176, 1)>,
+			 <APPLE_PINMUX(177, 1)>;
+	};
+};
+
+&spi3 {
+	cs-gpios = <&pinctrl_ap 85 GPIO_ACTIVE_LOW>;
+	clocks = <&spi3_nclk>;
+	dmas = <&sio 0x1a>;
+	dma-names = "tx";
+	status = "okay";
+
+	touchscreen@0 {
+		compatible = "apple,j172-touchscreen";
+		reg = <0>;
+		spi-max-frequency = <24000000>;
+		spi-cpol;
+		spi-cpha;
+		spi-cs-setup-delay-ns = <10000>;
+		spi-cs-hold-delay-ns = <10000>;
+		spi-cs-inactive-delay-ns = <10000>;
+		apple,z2-bpw16-min-len = <17>;
+		apple,z2-no-init-ack;
+		pinctrl-names = "display-sync-active";
+		pinctrl-0 = <&touch_display_sync_active>;
+		/* D10/D11 supplies are not present on J172. */
+		interrupts-extended = <&pinctrl_ap 21 IRQ_TYPE_EDGE_FALLING>;
+		power-ldo-gpios = <&pinctrl_ap 29 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pinctrl_ap 31 GPIO_ACTIVE_LOW>;
+		power-ana-gpios = <&pinctrl_ap 145 GPIO_ACTIVE_HIGH>;
+		display-sync-gpios = <&pinctrl_ap 176 GPIO_ACTIVE_HIGH>;
+		display-sync1-gpios = <&pinctrl_ap 177 GPIO_ACTIVE_HIGH>;
+		clocks = <&touchclk>;
+		firmware-name = "apple/dfrmtfw-j172-k1f19-6.bin";
+		touchscreen-size-x = <1620>;
+		touchscreen-size-y = <2160>;
+	};
+};
+
+&sio {
+	status = "okay";
+};

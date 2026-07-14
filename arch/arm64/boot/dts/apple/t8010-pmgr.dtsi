@@ -6,6 +6,15 @@
  */
 
 &pmgr {
+	touchclk: clock-controller@78000 {
+		compatible = "apple,t8010-touch-clock";
+		reg = <0x78000 0x8>;
+		#clock-cells = <0>;
+		clocks = <&clkref>;
+		clock-output-names = "touchclk";
+		clock-frequency = <24000000>;
+	};
+
 	ps_cpu0: power-controller@80000 {
 		compatible = "apple,t8010-pmgr-pwrstate", "apple,pmgr-pwrstate";
 		reg = <0x80000 4>;
