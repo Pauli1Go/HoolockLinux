@@ -1739,8 +1739,10 @@ static int bq27xxx_battery_read_cyct(struct bq27xxx_device_info *di,
 	int cyct;
 
 	cyct = bq27xxx_read(di, BQ27XXX_REG_CYCT, false);
-	if (cyct < 0)
+	if (cyct < 0) {
 		dev_err(di->dev, "error reading cycle count total\n");
+		return cyct;
+	}
 
 	val->intval = cyct;
 
