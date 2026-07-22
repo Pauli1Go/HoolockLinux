@@ -4,7 +4,7 @@
 $id: http://devicetree.org/schemas/w1/w1-uart.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: UART 1-Wire Bus
+title: UART 1-Wire and HDQ Bus
 
 maintainers:
   - Christoph Winklhofer <cj.winklhofer@gmail.com>
@@ -25,9 +25,16 @@ description: |
 
   https://www.analog.com/en/technical-articles/using-a-uart-to-implement-a-1wire-bus-master.html
 
+  The UART can alternatively implement the Texas Instruments HDQ protocol.
+  HDQ mode uses 57600 baud, 8 data bits, no parity, two stop bits, and a
+  serial BREAK for the HDQ break pulse. Each HDQ bit is represented by one
+  UART byte, and the bus contains a single device without a 1-Wire ROM ID.
+
 properties:
   compatible:
-    const: w1-uart
+    enum:
+      - w1-uart
+      - ti,hdq-uart
 
   reset-bps:
     default: 9600
@@ -55,5 +62,16 @@ examples:
     serial {
         onewire {
             compatible = "w1-uart";
+        };
+    };
+
+  - |
+    serial {
+        onewire {
+            compatible = "ti,hdq-uart";
+
+            fuel-gauge {
+                compatible = "ti,bq27545-hdq";
+            };
         };
     };
