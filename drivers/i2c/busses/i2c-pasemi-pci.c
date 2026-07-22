@@ -41,6 +41,7 @@ static int pasemi_smb_pci_probe(struct pci_dev *dev,
 	base = pci_resource_start(dev, 0);
 	size = pci_resource_len(dev, 0);
 	smbus->clk_div = CLK_100K_DIV;
+	smbus->ctl_flags = PASEMI_CTL_LEGACY_FLAGS;
 
 	/*
 	 * The original PASemi PCI controllers don't have a register for
