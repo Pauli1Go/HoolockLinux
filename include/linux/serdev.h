@@ -74,6 +74,11 @@ enum serdev_parity {
 	SERDEV_PARITY_ODD,
 };
 
+enum serdev_stopbits {
+	SERDEV_STOPBITS_1,
+	SERDEV_STOPBITS_2,
+};
+
 /*
  * serdev controller structures
  */
@@ -84,6 +89,8 @@ struct serdev_controller_ops {
 	void (*close)(struct serdev_controller *);
 	void (*set_flow_control)(struct serdev_controller *, bool);
 	int (*set_parity)(struct serdev_controller *, enum serdev_parity);
+	int (*set_stopbits)(struct serdev_controller *ctrl,
+			    enum serdev_stopbits stopbits);
 	unsigned int (*set_baudrate)(struct serdev_controller *, unsigned int);
 	void (*wait_until_sent)(struct serdev_controller *, long);
 	int (*get_tiocm)(struct serdev_controller *);
@@ -253,6 +260,7 @@ static inline int serdev_device_set_tiocm(struct serdev_device *serdev, int set,
 {
 	return -EOPNOTSUPP;
 }
+
 static inline int serdev_device_break_ctl(struct serdev_device *serdev, int break_state)
 {
 	return -EOPNOTSUPP;
@@ -294,6 +302,8 @@ static inline int serdev_device_set_rts(struct serdev_device *serdev, bool enabl
 
 int serdev_device_set_parity(struct serdev_device *serdev,
 			     enum serdev_parity parity);
+int serdev_device_set_stopbits(struct serdev_device *serdev,
+			       enum serdev_stopbits stopbits);
 
 /*
  * serdev hooks into TTY core
