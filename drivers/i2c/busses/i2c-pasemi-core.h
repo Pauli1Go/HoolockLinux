@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/atomic.h>
+#include <linux/bits.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -10,14 +11,17 @@
 #include <linux/completion.h>
 
 #define PASEMI_HW_REV_PCI -1
+#define PASEMI_CTL_LEGACY_FLAGS	(GENMASK(10, 8))
 
 struct pasemi_smbus {
 	struct device		*dev;
 	struct i2c_adapter	 adapter;
 	void __iomem		*ioaddr;
 	unsigned int		 clk_div;
+	unsigned int		 ctl_flags;
 	int			 hw_rev;
 	int			 use_irq;
+	void			 (*hw_init)(struct pasemi_smbus *smbus);
 	struct completion	 irq_completion;
 };
 
