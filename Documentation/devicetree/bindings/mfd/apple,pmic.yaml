@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 ---
 $id: http://devicetree.org/schemas/mfd/apple,pmic.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
@@ -55,6 +56,9 @@ properties:
     const: 1
 
 patternProperties:
+  "^charger@[0-9a-f]+$":
+    $ref: /schemas/power/supply/apple,d2365-charger.yaml
+
   "^backlight(@[0-9a-f]+)?$":
     $ref: /schemas/leds/backlight/apple,pmic-bl.yaml
 
