@@ -14,6 +14,11 @@
 #include "t8010-ipad6.dtsi"
 
 / {
+	ipad7_battery: battery {
+		compatible = "simple-battery";
+		charge-full-design-microamp-hours = <8557000>;
+	};
+
 	spi3_nclk: clock-spi3-nclk {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
@@ -23,9 +28,59 @@
 };
 
 &pinctrl_ap {
+	battery_swi_pins: battery-swi-pins {
+		pinmux = <APPLE_PINMUX(173, 1)>;
+	};
+
+	i2c1_gpio_pins: i2c1-gpio-pins {
+		pinmux = <APPLE_PINMUX(40, 0)>,
+			 <APPLE_PINMUX(39, 0)>;
+	};
+
 	touch_display_sync_active: touch-display-sync-active-pins {
 		pinmux = <APPLE_PINMUX(176, 1)>,
 			 <APPLE_PINMUX(177, 1)>;
+	};
+};
+
+&serial5 {
+	pinctrl-0 = <&battery_swi_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	onewire {
+		compatible = "ti,hdq-uart";
+
+		battery: fuel-gauge {
+			compatible = "ti,bq27545-hdq";
+			monitored-battery = <&ipad7_battery>;
+		};
+	};
+};
+
+&i2c1 {
+	pinctrl-0 = <&i2c1_pins>;
+	pinctrl-1 = <&i2c1_gpio_pins>;
+	pinctrl-names = "default", "gpio";
+	resets = <&ps_i2c1>;
+	scl-gpios = <&pinctrl_ap 40 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+	sda-gpios = <&pinctrl_ap 39 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+	status = "okay";
+
+	usb_power: usb-power@13 {
+		compatible = "apple,bellatrix";
+		reg = <0x13>;
+		interrupt-parent = <&pinctrl_aop>;
+		interrupts = <13 IRQ_TYPE_LEVEL_LOW>;
+	};
+};
+
+&d2365_pmic {
+	d2365_charger: charger@180 {
+		compatible = "apple,j172-d2365-charger", "apple,d2365-charger";
+		reg = <0x180 0x1e>, <0xa00 0x0d>;
+		reg-names = "status", "control";
+		power-supplies = <&usb_power>;
 	};
 };
 

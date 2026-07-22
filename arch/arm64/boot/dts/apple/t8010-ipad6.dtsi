@@ -58,7 +58,7 @@
 &i2c0 {
 	status = "okay";
 
-	pmic@3c {
+	d2365_pmic: pmic@3c {
 		compatible = "apple,angel-pmic", "apple,i2c-pmic";
 		reg = <0x3c>;
 		#address-cells = <1>;
