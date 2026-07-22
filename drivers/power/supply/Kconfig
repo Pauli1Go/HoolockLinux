@@ -348,6 +348,20 @@ config APPLE_BELLATRIX_POWER
 	  This driver can also be built as a module. If so, the module will be
 	  called apple_bellatrix_power.
 
+config APPLE_D2365_CHARGER
+	tristate "Apple D2365 charger status"
+	depends on MFD_SIMPLE_MFD_I2C
+	help
+	  Say Y here to enable charger status reporting and the guarded input-current
+	  policy for the Apple D2365 PMIC found in some T8010 devices.
+
+	  The policy raises the input-current budget only while external power and
+	  safe battery conditions are present, and leaves charge termination to the
+	  PMIC. It does not configure charge current, charge voltage, or interrupts.
+
+	  This driver can also be built as a module. If so, the module will be
+	  called apple_d2365_charger.
+
 config BATTERY_BQ27XXX_DT_UPDATES_NVM
 	bool "BQ27xxx support for update of NVM/flash data memory"
 	depends on BATTERY_BQ27XXX_I2C
