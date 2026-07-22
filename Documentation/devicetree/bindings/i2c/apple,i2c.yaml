@@ -58,6 +58,13 @@ properties:
   power-domains:
     maxItems: 1
 
+  resets:
+    maxItems: 1
+
+  scl-gpios: true
+
+  sda-gpios: true
+
 required:
   - compatible
   - reg
