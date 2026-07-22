@@ -46,9 +46,23 @@ struct bq27xxx_access_methods {
 	int (*write_bulk)(struct bq27xxx_device_info *di, u8 reg, u8 *data, int len);
 };
 
+struct bq27xxx_cached_value {
+	int value;
+	int error;
+};
+
 struct bq27xxx_reg_cache {
 	int capacity;
 	int flags;
+	struct bq27xxx_cached_value current_now;
+	struct bq27xxx_cached_value status;
+	struct bq27xxx_cached_value time_to_empty_now;
+	struct bq27xxx_cached_value temperature;
+	struct bq27xxx_cached_value voltage;
+	struct bq27xxx_cached_value charge_now;
+	struct bq27xxx_cached_value charge_full;
+	struct bq27xxx_cached_value cycle_count;
+	struct bq27xxx_cached_value power_avg;
 };
 
 struct bq27xxx_device_info {
@@ -60,6 +74,10 @@ struct bq27xxx_device_info {
 	u32 unseal_key;
 	struct bq27xxx_access_methods bus;
 	struct bq27xxx_reg_cache cache;
+	/* Serve properties only from the periodically populated register cache. */
+	bool cache_only;
+	/* Optional periodic refresh interval for cache-only transports. */
+	unsigned int cache_refresh_ms;
 	int charge_design_full;
 	int voltage_min_design;
 	int voltage_max_design;
