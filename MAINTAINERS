@@ -2667,6 +2667,18 @@ F:	include/linux/mfd/macsmc.h
 F:	include/linux/soc/apple/*
 F:	include/uapi/drm/asahi_drm.h
 
+APPLE J172 BATTERY AND USB POWER SUPPORT
+M:	Paul Praschl <praschlpaul@g-p.at>
+L:	asahi@lists.linux.dev
+L:	linux-pm@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/power/supply/apple,bellatrix.yaml
+F:	Documentation/devicetree/bindings/power/supply/apple,d2365-charger.yaml
+F:	Documentation/devicetree/bindings/power/supply/ti,bq27545-hdq-uart.yaml
+F:	drivers/power/supply/apple_bellatrix_power.c
+F:	drivers/power/supply/apple_d2365_charger.c
+F:	drivers/power/supply/bq27xxx_battery_uart_hdq.c
+
 APPLE J172 TOUCHSCREEN SUPPORT
 M:	Paul Praschl <praschlpaul@g-p.at>
 L:	asahi@lists.linux.dev
