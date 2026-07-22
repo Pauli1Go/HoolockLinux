@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/power/supply/ti,bq27545-hdq-uart.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Texas Instruments BQ27545 fuel gauge using HDQ over UART
+
+maintainers:
+  - Paul Praschl <praschlpaul@g-p.at>
+
+description: |
+  The BQ27545 single-wire HDQ bus can be driven by a UART using one serial
+  byte for each HDQ bit. The UART is configured for 57600 baud, 8 data bits,
+  no parity, and 2 stop bits. A serial BREAK generates the HDQ break pulse.
+  This connection is used by Apple T8010 devices.
+
+allOf:
+  - $ref: power-supply.yaml#
+  - $ref: /schemas/serial/serial-peripheral-props.yaml#
+
+properties:
+  compatible:
+    const: ti,bq27545-hdq-uart
+
+  power-supplies:
+    maxItems: 1
+
+  monitored-battery: true
+
+required:
+  - compatible
+  - power-supplies
+
+additionalProperties: false
+
+examples:
+  - |
+    charger: charger {
+    };
+
+    serial {
+        fuel-gauge {
+            compatible = "ti,bq27545-hdq-uart";
+            power-supplies = <&charger>;
+            monitored-battery = <&battery_info>;
+        };
+    };
