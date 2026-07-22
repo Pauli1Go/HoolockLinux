@@ -91,7 +91,7 @@ properties:
     $ref: /schemas/graph.yaml#/properties/port
 
 patternProperties:
-  "^(bluetooth|bluetooth-gnss|embedded-controller|gnss|gps|mcu|onewire)$":
+  "^(bluetooth|bluetooth-gnss|embedded-controller|fuel-gauge|gnss|gps|mcu|onewire)$":
     if:
       type: object
     then:
