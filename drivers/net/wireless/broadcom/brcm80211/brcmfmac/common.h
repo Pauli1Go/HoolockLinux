@@ -56,6 +56,7 @@ struct brcmf_mp_device {
 	const char	*antenna_sku;
 	const void	*cal_blob;
 	int		cal_size;
+	bool		cal_blob_allocated;
 	union {
 		struct brcmfmac_sdio_pd sdio;
 	} bus;
