@@ -1326,6 +1326,15 @@ config GPIO_ALTERA_A10SR
 	  includes reads of pushbuttons and DIP switches as well
 	  as writes to LEDs.
 
+config GPIO_APPLE_D2365
+	tristate "Apple D2365 PMIC GPIO support"
+	depends on MFD_SIMPLE_MFD_I2C
+	help
+	  Say yes here to enable support for the 24 GPIOs provided by the
+	  Dialog D2365 PMIC used in Apple A10 devices. The GPIO controller is
+	  exposed as a child of the Apple I2C PMIC and can control board-level
+	  signals such as peripheral power enables.
+
 config GPIO_ARIZONA
 	tristate "Wolfson Microelectronics Arizona class devices"
 	depends on MFD_ARIZONA
