@@ -16,6 +16,7 @@ properties:
   compatible:
     items:
       - enum:
+          - apple,syscfg-rmem
           - mobileye,eyeq5-bootloader-config
           - raspberrypi,bootloader-config
           - raspberrypi,bootloader-public-key

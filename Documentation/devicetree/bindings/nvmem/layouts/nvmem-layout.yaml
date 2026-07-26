@@ -19,6 +19,7 @@ description: |
 
 oneOf:
   - $ref: fixed-layout.yaml
+  - $ref: apple,syscfg.yaml
   - $ref: kontron,sl28-vpd.yaml
   - $ref: onie,tlv-layout.yaml
   - $ref: u-boot,env.yaml

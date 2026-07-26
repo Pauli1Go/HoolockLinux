@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/nvmem/layouts/apple,syscfg.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Apple SysCfg NVMEM layout
+
+maintainers:
+  - Paul Praschl <praschlpaul@g-p.at>
+
+description:
+  Apple SysCfg stores board-specific key/value entries such as MAC addresses
+  and wireless calibration blobs. This layout exposes selected four-character
+  SysCfg keys as named NVMEM cells on top of an NVMEM provider containing a raw
+  SysCfg blob.
+
+properties:
+  compatible:
+    const: apple,syscfg
+
+patternProperties:
+  "^(?!compatible$)[a-zA-Z0-9][a-zA-Z0-9,._+-]*$":
+    type: object
+    additionalProperties: false
+
+    properties:
+      apple,syscfg-key:
+        description: Four-character SysCfg key to expose as this cell.
+        $ref: /schemas/types.yaml#/definitions/string
+        pattern: '^[A-Za-z0-9]{4}$'
+
+      apple,syscfg-size:
+        description:
+          Optional number of bytes to expose from the start of the SysCfg
+          value. If omitted, the full inline value or jumbo value is exposed.
+        $ref: /schemas/types.yaml#/definitions/uint32
+        minimum: 1
+
+    required:
+      - apple,syscfg-key
+
+required:
+  - compatible
+
+additionalProperties: false
+
+examples:
+  - |
+    reserved-memory {
+        #address-cells = <2>;
+        #size-cells = <2>;
+
+        syscfg@90000000 {
+            compatible = "apple,syscfg-rmem", "nvmem-rmem";
+            reg = <0x0 0x90000000 0x0 0x20000>;
+            no-map;
+
+            nvmem-layout {
+                compatible = "apple,syscfg";
+
+                calibration {
+                    apple,syscfg-key = "WCAL";
+                };
+
+                mac-address {
+                    apple,syscfg-key = "WMac";
+                    apple,syscfg-size = <6>;
+                };
+            };
+        };
+    };
