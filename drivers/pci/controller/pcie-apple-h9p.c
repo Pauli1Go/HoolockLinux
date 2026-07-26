@@ -28,6 +28,7 @@
 #include <linux/msi.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/of_device.h>
 #include <linux/of_irq.h>
 #include <linux/of_pci.h>
 #include <linux/pci.h>
@@ -37,6 +38,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_domain.h>
 #include <linux/sizes.h>
+#include <linux/slab.h>
 
 #include <linux/apple-dart.h>
 #include <linux/apple-ans.h>
@@ -50,11 +52,25 @@
 
 #define H9P_CFG_PORT_STRIDE		0x8000
 #define H9P_CFG_PORT_MISC		0x08e0
+#define H9P_CFG_AER_CAP			0x0100
 #define H9P_BRIDGE_HEADER_FIRST		PCI_REVISION_ID
 #define H9P_BRIDGE_HEADER_LAST		PCI_INTERRUPT_LINE
 #define H9P_BRIDGE_HEADER_DWORDS		\
 	((H9P_BRIDGE_HEADER_LAST - H9P_BRIDGE_HEADER_FIRST) / sizeof(u32) + 1)
+#define H9P_BRIDGE_WINDOW_DISABLED	0x0000fff0
 #define H9P_PORT_LINK_EVENT		BIT(12)
+#define H9P_J172_QUIRK_CFG_FIRST		PCI_BASE_ADDRESS_0
+#define H9P_J172_QUIRK_CFG_LAST		PCI_ROM_ADDRESS
+#define H9P_J172_QUIRK_CFG_DWORDS	\
+	((H9P_J172_QUIRK_CFG_LAST - H9P_J172_QUIRK_CFG_FIRST) / \
+	 sizeof(u32) + 1)
+#define H9P_ROOT_PORT_DEVCTL		(PCI_EXP_DEVCTL_CERE | \
+					 PCI_EXP_DEVCTL_NFERE | \
+					 PCI_EXP_DEVCTL_FERE | \
+					 PCI_EXP_DEVCTL_URRE | \
+					 PCI_EXP_DEVCTL_RELAX_EN | \
+					 PCI_EXP_DEVCTL_PAYLOAD_256B | \
+					 PCI_EXP_DEVCTL_READRQ_512B)
 
 #define H9P_RC_COMMON_CTL0		0x0004
 #define H9P_RC_COMMON_CTL1		0x0014
@@ -115,6 +131,12 @@
 #define H9P_PORT_LINKSTS_LINK_PRESENT	BIT(3)
 #define H9P_PORT_LTSSM_L0		0x11
 #define H9P_PORT_LTSSM_L1_IDLE		0x14
+#define H9P_J172_QUIRK_FIRST_SETTLE_MIN_US	52000
+#define H9P_J172_QUIRK_FIRST_SETTLE_MAX_US	55000
+#define H9P_J172_QUIRK_ACK_SETTLE_MIN_US		550
+#define H9P_J172_QUIRK_ACK_SETTLE_MAX_US		650
+#define H9P_J172_QUIRK_PREFIX_SETTLE_MIN_US	6400
+#define H9P_J172_QUIRK_PREFIX_SETTLE_MAX_US	7000
 
 #define H9P_LINK_SPEED_2_5GT		1
 #define H9P_LINK_SPEED_8GT		3
@@ -231,11 +253,14 @@ struct apple_h9p_port_irq {
 	bool enabled;
 };
 
+struct apple_h9p_j172_bridge_quirk_state;
+
 struct apple_h9p_pcie {
 	struct device *dev;
 	struct platform_device *pdev;
 	struct pci_host_bridge *bridge;
 	struct pci_config_window *cfgwin;
+	struct apple_h9p_j172_bridge_quirk_state *j172_quirk_state;
 
 	void __iomem *base_config;
 	void __iomem *base_rc;
@@ -263,6 +288,7 @@ struct apple_h9p_pcie {
 	u32 inherited_perst_ports;
 	u32 inherited_perst_pending;
 	bool pwrctrl_powered;
+	bool j172_bridge_quirk;
 
 	struct apple_h9p_nvmmu nvmmu;
 
@@ -277,6 +303,16 @@ struct apple_h9p_pcie {
 	struct irq_domain *irq_dom;
 	struct irq_fwspec msi_fwspec;
 	u32 nvecs;
+};
+
+struct apple_h9p_j172_bridge_quirk_state {
+	u32 root[3][H9P_J172_QUIRK_CFG_DWORDS];
+	u32 root_aer_uncor_mask[3];
+	u32 root_aer_cor_mask[3];
+	u32 root_devctlsts[3];
+	u32 nvme[H9P_J172_QUIRK_CFG_DWORDS];
+	u32 rc_port_ctl1;
+	bool nvme_valid;
 };
 
 enum apple_h9p_port_result {
@@ -323,8 +359,7 @@ static void apple_h9p_save_bridge_header(void __iomem *config, u32 *header)
 	unsigned int i;
 
 	for (i = 0; i < H9P_BRIDGE_HEADER_DWORDS; i++)
-		header[i] = readl(config + H9P_BRIDGE_HEADER_FIRST +
-				  i * sizeof(u32));
+		header[i] = readl(config + H9P_BRIDGE_HEADER_FIRST + i * sizeof(u32));
 }
 
 static void apple_h9p_restore_bridge_header(void __iomem *config,
@@ -334,7 +369,256 @@ static void apple_h9p_restore_bridge_header(void __iomem *config,
 
 	for (i = 0; i < H9P_BRIDGE_HEADER_DWORDS; i++)
 		writel(header[i], config + H9P_BRIDGE_HEADER_FIRST +
-		       i * sizeof(u32));
+			       i * sizeof(u32));
+}
+
+static u32 apple_h9p_bridge_bus_numbers(unsigned int bus)
+{
+	return bus << 8 | bus << 16;
+}
+
+/*
+ * Temporary J172-only compatibility quirk. This is an observed firmware
+ * transaction sequence, not an understood H9P controller state, and must not
+ * be included in an upstream series until the hardware operation is known.
+ */
+static const unsigned int h9p_j172_quirk_ports[] = { 0, 2, 3 };
+
+static void apple_h9p_j172_quirk_read_capabilities(void __iomem *config)
+{
+	static const u16 legacy_caps[] = { 0x40, 0x50, 0x70 };
+	unsigned int i;
+
+	readl(config + PCI_COMMAND);
+	readl(config + PCI_CAPABILITY_LIST);
+	for (i = 0; i < ARRAY_SIZE(legacy_caps); i++)
+		readl(config + legacy_caps[i]);
+}
+
+static void
+apple_h9p_j172_quirk_postwrite_readback(struct apple_h9p_pcie *pcie, u64 cap)
+{
+	static const u16 extended_caps[] = {
+		H9P_CFG_AER_CAP, 0x148, 0x160,
+	};
+	void __iomem *config;
+	unsigned int i;
+	unsigned int j;
+
+	/*
+	 * These reads reproduce the ordering barriers in the firmware bridge
+	 * walk. They are MMIO transactions with hardware side effects, not
+	 * values consumed by software, so they must not be folded together.
+	 */
+	config = pcie->base_config + 3 * H9P_CFG_PORT_STRIDE;
+	apple_h9p_j172_quirk_read_capabilities(config);
+	readl(config + PCI_COMMAND);
+	apple_h9p_j172_quirk_read_capabilities(config);
+	for (i = 0; i < ARRAY_SIZE(extended_caps); i++)
+		readl(config + extended_caps[i]);
+	readl(config + PCI_COMMAND);
+	apple_h9p_j172_quirk_read_capabilities(config);
+	for (i = 0; i < ARRAY_SIZE(extended_caps); i++)
+		readl(config + extended_caps[i]);
+
+	for (i = 0; i < ARRAY_SIZE(h9p_j172_quirk_ports); i++) {
+		config = pcie->base_config +
+			 h9p_j172_quirk_ports[i] * H9P_CFG_PORT_STRIDE;
+		for (j = PCI_VENDOR_ID; j <= PCI_INTERRUPT_LINE;
+		     j += sizeof(u32))
+			readl(config + j);
+		readl(config + cap + PCI_EXP_LNKCAP);
+	}
+}
+
+static void
+apple_h9p_j172_quirk_save_state(struct apple_h9p_pcie *pcie, u64 cap,
+				struct apple_h9p_j172_bridge_quirk_state *state)
+{
+	void __iomem *config;
+	unsigned int i;
+	unsigned int j;
+
+	state->rc_port_ctl1 = readl(pcie->base_rc + H9P_RC_PORT_CTL1(0));
+	for (i = 0; i < ARRAY_SIZE(h9p_j172_quirk_ports); i++) {
+		config = pcie->base_config +
+			 h9p_j172_quirk_ports[i] * H9P_CFG_PORT_STRIDE;
+		for (j = 0; j < H9P_J172_QUIRK_CFG_DWORDS; j++)
+			state->root[i][j] =
+				readl(config + H9P_J172_QUIRK_CFG_FIRST +
+				      j * sizeof(u32));
+		state->root_aer_uncor_mask[i] =
+			readl(config + H9P_CFG_AER_CAP + PCI_ERR_UNCOR_MASK);
+		state->root_aer_cor_mask[i] =
+			readl(config + H9P_CFG_AER_CAP + PCI_ERR_COR_MASK);
+		state->root_devctlsts[i] =
+			readl(config + cap + PCI_EXP_DEVCTL);
+	}
+}
+
+static void
+apple_h9p_j172_quirk_replay(struct apple_h9p_pcie *pcie, u64 cap,
+			    struct apple_h9p_j172_bridge_quirk_state *state)
+{
+	void __iomem *nvme = pcie->base_config + (3 << 20);
+	void __iomem *config;
+	u32 devctlsts = 0;
+	unsigned int i;
+
+	/*
+	 * Replay the bounded firmware pre-enumeration transaction sequence.
+	 * The caller saved every BAR/window dword, the AER masks, Device
+	 * Control and the RC port control register that this sequence changes;
+	 * apple_h9p_j172_quirk_restore_state() restores them before Linux
+	 * enumerates the bus. W1C AER status writes intentionally acknowledge
+	 * pending hardware state and therefore are not restorable.
+	 */
+	for (i = 0; i < ARRAY_SIZE(h9p_j172_quirk_ports); i++) {
+		config = pcie->base_config +
+			 h9p_j172_quirk_ports[i] * H9P_CFG_PORT_STRIDE;
+		writel(~0, config + PCI_BASE_ADDRESS_0);
+		readl(config + PCI_BASE_ADDRESS_0);
+		writel(0, config + PCI_BASE_ADDRESS_0);
+		writel(~0, config + PCI_BASE_ADDRESS_1);
+		readl(config + PCI_BASE_ADDRESS_1);
+		writel(0, config + PCI_BASE_ADDRESS_1);
+	}
+
+	writel(apple_h9p_bridge_bus_numbers(3),
+	       pcie->base_config + PCI_PRIMARY_BUS);
+	writel(apple_h9p_bridge_bus_numbers(2),
+	       pcie->base_config + 2 * H9P_CFG_PORT_STRIDE + PCI_PRIMARY_BUS);
+	writel(apple_h9p_bridge_bus_numbers(1),
+	       pcie->base_config + 3 * H9P_CFG_PORT_STRIDE + PCI_PRIMARY_BUS);
+	readl(pcie->base_config + PCI_PRIMARY_BUS);
+
+	writel(BIT(20), pcie->base_config + H9P_CFG_AER_CAP +
+	       PCI_ERR_UNCOR_STATUS);
+
+	state->nvme_valid = readl(nvme + PCI_VENDOR_ID) != ~0U;
+	if (state->nvme_valid) {
+		for (i = 0; i < H9P_J172_QUIRK_CFG_DWORDS; i++)
+			state->nvme[i] =
+				readl(nvme + H9P_J172_QUIRK_CFG_FIRST +
+				      i * sizeof(u32));
+	}
+
+	writel(PCI_ROM_ADDRESS_MASK, nvme + PCI_ROM_ADDRESS);
+	readl(nvme + PCI_ROM_ADDRESS);
+	writel(0, nvme + PCI_ROM_ADDRESS);
+	writel(~0, nvme + PCI_BASE_ADDRESS_0);
+	readl(nvme + PCI_BASE_ADDRESS_0);
+	writel(PCI_BASE_ADDRESS_MEM_TYPE_64, nvme + PCI_BASE_ADDRESS_0);
+	writel(0, nvme + PCI_BASE_ADDRESS_1);
+	for (i = PCI_BASE_ADDRESS_2; i <= PCI_BASE_ADDRESS_5;
+	     i += sizeof(u32)) {
+		writel(~0, nvme + i);
+		readl(nvme + i);
+		writel(0, nvme + i);
+	}
+
+	config = pcie->base_config;
+	writel(0, config + PCI_IO_BASE_UPPER16);
+	writel(H9P_BRIDGE_WINDOW_DISABLED, config + PCI_MEMORY_BASE);
+	writel(H9P_BRIDGE_WINDOW_DISABLED, config + PCI_PREF_MEMORY_BASE);
+	writel(0, config + PCI_PREF_LIMIT_UPPER32);
+	writel(~0, config + PCI_PREF_BASE_UPPER32);
+
+	for (i = 1; i < ARRAY_SIZE(h9p_j172_quirk_ports); i++) {
+		config = pcie->base_config +
+			 h9p_j172_quirk_ports[i] * H9P_CFG_PORT_STRIDE;
+		writel(0, config + PCI_IO_BASE_UPPER16);
+		writel(H9P_BRIDGE_WINDOW_DISABLED,
+		       config + PCI_MEMORY_BASE);
+		writel(~0, config + PCI_PREF_BASE_UPPER32);
+		writel(0, config + PCI_PREF_LIMIT_UPPER32);
+		writel(H9P_BRIDGE_WINDOW_DISABLED,
+		       config + PCI_PREF_MEMORY_BASE);
+		/*
+		 * Firmware repeats the prefetch-window disable after updating
+		 * both upper dwords. Preserve the second transaction: omitting
+		 * it does not reproduce the natural port-3 lifecycle.
+		 */
+		writel(H9P_BRIDGE_WINDOW_DISABLED,
+		       config + PCI_PREF_MEMORY_BASE);
+		writel(0, config + PCI_PREF_LIMIT_UPPER32);
+		writel(~0, config + PCI_PREF_BASE_UPPER32);
+	}
+
+	config = pcie->base_config;
+	writel(0xc000c000, config + PCI_MEMORY_BASE);
+	writel(H9P_BRIDGE_WINDOW_DISABLED, config + PCI_PREF_MEMORY_BASE);
+	writel(0, config + PCI_PREF_LIMIT_UPPER32);
+	writel(~0, config + PCI_PREF_BASE_UPPER32);
+	writel(0xc0000000, nvme + PCI_BASE_ADDRESS_0);
+
+	for (i = 0; i < ARRAY_SIZE(h9p_j172_quirk_ports); i++) {
+		config = pcie->base_config +
+			 h9p_j172_quirk_ports[i] * H9P_CFG_PORT_STRIDE;
+		writel(1, config + H9P_CFG_AER_CAP + PCI_ERR_UNCOR_STATUS);
+		writel(1, config + H9P_CFG_AER_CAP + PCI_ERR_UNCOR_MASK);
+		writel(0, config + H9P_CFG_AER_CAP + PCI_ERR_COR_STATUS);
+		writel(0, config + H9P_CFG_AER_CAP + PCI_ERR_COR_MASK);
+
+		devctlsts = readl(config + cap + PCI_EXP_DEVCTL);
+		devctlsts = (devctlsts & GENMASK(31, 16)) |
+			    H9P_ROOT_PORT_DEVCTL;
+		writel(devctlsts, config + cap + PCI_EXP_DEVCTL);
+	}
+	apple_h9p_j172_quirk_postwrite_readback(pcie, cap);
+}
+
+static void
+apple_h9p_j172_quirk_restore_state(struct apple_h9p_pcie *pcie, u64 cap,
+				   const struct apple_h9p_j172_bridge_quirk_state *state)
+{
+	void __iomem *nvme = pcie->base_config + (3 << 20);
+	void __iomem *config;
+	unsigned int i;
+	unsigned int j;
+
+	if (state->nvme_valid) {
+		for (i = 0; i < H9P_J172_QUIRK_CFG_DWORDS; i++)
+			writel(state->nvme[i],
+			       nvme + H9P_J172_QUIRK_CFG_FIRST +
+			       i * sizeof(u32));
+	}
+
+	for (i = 0; i < ARRAY_SIZE(h9p_j172_quirk_ports); i++) {
+		config = pcie->base_config +
+			 h9p_j172_quirk_ports[i] * H9P_CFG_PORT_STRIDE;
+		for (j = 0; j < H9P_J172_QUIRK_CFG_DWORDS; j++)
+			writel(state->root[i][j],
+			       config + H9P_J172_QUIRK_CFG_FIRST +
+			       j * sizeof(u32));
+		writel(state->root_aer_uncor_mask[i],
+		       config + H9P_CFG_AER_CAP + PCI_ERR_UNCOR_MASK);
+		writel(state->root_aer_cor_mask[i],
+		       config + H9P_CFG_AER_CAP + PCI_ERR_COR_MASK);
+		writel(state->root_devctlsts[i],
+		       config + cap + PCI_EXP_DEVCTL);
+	}
+
+	writel(state->rc_port_ctl1,
+	       pcie->base_rc + H9P_RC_PORT_CTL1(0));
+	readl(pcie->base_rc + H9P_RC_PORT_CTL1(0));
+}
+
+static void apple_h9p_run_j172_bridge_quirk(struct apple_h9p_pcie *pcie,
+					    u64 cap)
+{
+	struct apple_h9p_j172_bridge_quirk_state *state =
+		pcie->j172_quirk_state;
+
+	usleep_range(H9P_J172_QUIRK_FIRST_SETTLE_MIN_US,
+		     H9P_J172_QUIRK_FIRST_SETTLE_MAX_US);
+	apple_h9p_j172_quirk_save_state(pcie, cap, state);
+	usleep_range(H9P_J172_QUIRK_ACK_SETTLE_MIN_US,
+		     H9P_J172_QUIRK_ACK_SETTLE_MAX_US);
+	apple_h9p_j172_quirk_replay(pcie, cap, state);
+	usleep_range(H9P_J172_QUIRK_PREFIX_SETTLE_MIN_US,
+		     H9P_J172_QUIRK_PREFIX_SETTLE_MAX_US);
+	apple_h9p_j172_quirk_restore_state(pcie, cap, state);
 }
 
 static void apple_h9p_pcie_detach_genpd(struct apple_h9p_pcie *pcie)
@@ -1265,6 +1549,8 @@ static int apple_h9p_setup_port(struct apple_h9p_pcie *pcie, unsigned int port,
 	       pcie->base_port[port] + H9P_PORT_MSIVECBASE);
 
 	if (port == 3) {
+		if (pcie->j172_bridge_quirk)
+			apple_h9p_run_j172_bridge_quirk(pcie, cap);
 		h9p_rmww(config + cap + PCI_EXP_LNKCTL, 0,
 			 PCI_EXP_LNKCTL_LBMIE | PCI_EXP_LNKCTL_LABIE);
 	}
@@ -1664,6 +1950,7 @@ static void apple_h9p_pcie_pwrctrl_cleanup(void *data)
 static int apple_h9p_pcie_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
+	const bool *j172_bridge_quirk;
 	struct pci_host_bridge *bridge;
 	struct apple_h9p_pcie *pcie;
 	int ret;
@@ -1677,6 +1964,16 @@ static int apple_h9p_pcie_probe(struct platform_device *pdev)
 	pcie->pdev = pdev;
 	pcie->bridge = bridge;
 	spin_lock_init(&pcie->used_msi_lock);
+	j172_bridge_quirk = of_device_get_match_data(dev);
+	pcie->j172_bridge_quirk =
+		j172_bridge_quirk && *j172_bridge_quirk;
+	if (pcie->j172_bridge_quirk) {
+		pcie->j172_quirk_state =
+			devm_kzalloc(dev, sizeof(*pcie->j172_quirk_state),
+				     GFP_KERNEL);
+		if (!pcie->j172_quirk_state)
+			return -ENOMEM;
+	}
 
 	ret = apple_h9p_pcie_parse_ports(pcie);
 	if (ret)
@@ -1785,7 +2082,13 @@ static int apple_h9p_pcie_probe(struct platform_device *pdev)
 	return pci_host_common_init(pdev, bridge, &apple_h9p_pcie_ecam_ops);
 }
 
+static const bool apple_h9p_j172_bridge_quirk = true;
+
 static const struct of_device_id apple_h9p_pcie_of_match[] = {
+	{
+		.compatible = "apple,j172-pcie",
+		.data = &apple_h9p_j172_bridge_quirk,
+	},
 	{ .compatible = "apple,t8010-pcie" },
 	{ }
 };
