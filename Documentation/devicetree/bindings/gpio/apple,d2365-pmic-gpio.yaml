@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/gpio/apple,d2365-pmic-gpio.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Apple D2365 PMIC GPIO controller
+
+maintainers:
+  - Paul Praschl <praschlpaul@g-p.at>
+
+description: |
+  The Dialog D2365 PMIC used in Apple A10 devices provides 24 GPIOs. The
+  controller is accessed through the regmap exported by the parent Apple I2C
+  PMIC device.
+
+properties:
+  compatible:
+    const: apple,d2365-pmic-gpio
+
+  gpio-controller: true
+
+  "#gpio-cells":
+    const: 2
+
+  gpio-reserved-ranges:
+    maxItems: 2
+
+required:
+  - compatible
+  - gpio-controller
+  - "#gpio-cells"
+
+additionalProperties: false
+
+examples:
+  - |
+    pmic {
+        #address-cells = <1>;
+        #size-cells = <1>;
+
+        gpio {
+            compatible = "apple,d2365-pmic-gpio";
+            #gpio-cells = <2>;
+            gpio-controller;
+        };
+    };
+...
