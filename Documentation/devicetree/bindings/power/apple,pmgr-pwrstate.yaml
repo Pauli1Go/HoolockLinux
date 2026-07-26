@@ -9,20 +9,19 @@ title: Apple SoC PMGR Power States
 maintainers:
   - Hector Martin <marcan@marcan.st>
 
-allOf:
-  - $ref: power-domain.yaml#
-
 description: |
   Apple SoCs include PMGR blocks responsible for power management,
   which can control various clocks, resets, power states, and
   performance features. This binding describes the device power
   state registers, which control power states and resets.
 
-  Each instance of a power controller within the PMGR syscon node
-  represents a generic power domain provider, as documented in
-  Documentation/devicetree/bindings/power/power-domain.yaml.
-  The provider controls a single SoC block. The power hierarchy is
-  represented via power-domains relationships between these nodes.
+  Most instances within the PMGR syscon node represent a generic power
+  domain provider, as documented in
+  Documentation/devicetree/bindings/power/power-domain.yaml. A state
+  register may instead be exposed exclusively as a clock gate when the
+  hardware consumer has no power-domain or reset interface. Each provider
+  controls a single SoC block. The power hierarchy is represented via
+  power-domains relationships between generic power-domain nodes.
 
   See Documentation/devicetree/bindings/arm/apple/apple,pmgr.yaml
   for the top-level PMGR node documentation.
@@ -54,6 +53,15 @@ properties:
   "#power-domain-cells":
     const: 0
 
+  "#clock-cells":
+    const: 0
+    description:
+      Exposes this PMGR state register as a clock gate. Enabling the clock
+      preserves an already active firmware state or requests the active state;
+      disabling it retains power while requesting the clock-gated state. A
+      state register exposed as a generic power domain cannot also be exposed
+      as a clock provider.
+
   "#reset-cells":
     const: 0
 
@@ -74,6 +82,19 @@ properties:
       Forces this power domain to always be powered up.
     type: boolean
 
+  apple,clock-gate-only:
+    description:
+      Registers this PMGR state exclusively as a clock gate. This is used
+      when the hardware provider exposes no generic power-domain or reset
+      interface for the state register.
+    type: boolean
+
+  apple,manual-pm:
+    description:
+      Keeps firmware-enabled hardware under explicit clock and power control
+      instead of enabling PMGR auto-PM while the provider is registered.
+    type: boolean
+
   apple,min-state:
     description:
       Specifies the minimum power state for auto-PM.
@@ -85,8 +106,32 @@ properties:
 required:
   - compatible
   - reg
-  - "#power-domain-cells"
-  - "#reset-cells"
   - label
+
+allOf:
+  - if:
+      required:
+        - apple,clock-gate-only
+    then:
+      required:
+        - "#clock-cells"
+      not:
+        anyOf:
+          - required:
+              - "#power-domain-cells"
+          - required:
+              - "#reset-cells"
+          - required:
+              - power-domains
+          - required:
+              - apple,always-on
+          - required:
+              - apple,min-state
+    else:
+      allOf:
+        - $ref: power-domain.yaml#
+      required:
+        - "#power-domain-cells"
+        - "#reset-cells"
 
 additionalProperties: false
