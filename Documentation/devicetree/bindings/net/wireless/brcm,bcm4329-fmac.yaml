@@ -105,6 +105,24 @@ properties:
       should be filled in by the bootloader from platform configuration
       data, if necessary, and will be uploaded to the device if present.
 
+  nvmem-cells:
+    minItems: 1
+    items:
+      - description: Reference to an nvmem cell named in nvmem-cell-names
+      - description: Reference to an nvmem cell named in nvmem-cell-names
+    description:
+      Reference to nvmem nodes for the MAC address and/or calibration data.
+
+  nvmem-cell-names:
+    oneOf:
+      - items:
+          - const: mac-address
+      - items:
+          - const: calibration
+      - items:
+          - const: mac-address
+          - const: calibration
+
   brcm,board-type:
     $ref: /schemas/types.yaml#/definitions/string
     description: Overrides the board type, which is normally the compatible of
@@ -135,6 +153,12 @@ properties:
 required:
   - compatible
   - reg
+
+dependentRequired:
+  nvmem-cells:
+    - nvmem-cell-names
+  nvmem-cell-names:
+    - nvmem-cells
 
 unevaluatedProperties: false
 
