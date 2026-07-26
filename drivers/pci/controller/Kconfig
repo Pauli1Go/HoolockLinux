@@ -59,7 +59,9 @@ config PCIE_APPLE_H9P
 	depends on ARCH_APPLE || COMPILE_TEST
 	depends on OF
 	depends on PCI_MSI
+	depends on APPLE_DART
 	select PCI_HOST_COMMON
+	select PCI_PWRCTRL
 	help
 	  Say Y here if you want to enable PCIe controller support on Apple
 	  A10 SoCs. The controller provides the root ports used by internal
