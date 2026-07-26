@@ -67,6 +67,12 @@ properties:
       in response to WLAN activity. This corresponds to the HOST_WAKE
       line into the chip.
 
+  interrupts-extended:
+    maxItems: 1
+    description: Out-of-band (OOB) IRQ line for waking up the host
+      in response to WLAN activity. This corresponds to the HOST_WAKE
+      line into the chip.
+
   interrupt-names:
     description: Name for the OOB IRQ, this must be set to "host-wake".
     const: host-wake
@@ -81,6 +87,21 @@ properties:
     maxItems: 1
     description: A GPIO line connected to the WL_RST line, if present
       this shall be flagged as active low.
+
+  device-wake-gpios:
+    maxItems: 1
+    description:
+      Host-to-device wake signal held inactive while Apple PCIe modules are
+      powered for initial enumeration.
+
+  vdd-supply:
+    description: Power supply for the Wi-Fi device.
+
+  apple,wlan-uart:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description:
+      Apple SoC UART/AppleARMIODevice provider associated with the WLAN
+      platform-control function block.
 
   brcm,ccode-map:
     $ref: /schemas/types.yaml#/definitions/string-array
