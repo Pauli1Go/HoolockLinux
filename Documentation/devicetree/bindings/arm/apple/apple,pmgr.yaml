@@ -56,9 +56,9 @@ properties:
     $ref: /schemas/clock/apple,t8010-touch-clock.yaml#
 
 patternProperties:
-  "power-controller@[0-9a-f]+$":
+  "^(power-controller|clock-controller)@(?!78000$)[0-9a-f]+$":
     description:
-      The individual power management domains within this controller
+      The individual power management domains and clock gates
     type: object
     $ref: /schemas/power/apple,pmgr-pwrstate.yaml#
 
