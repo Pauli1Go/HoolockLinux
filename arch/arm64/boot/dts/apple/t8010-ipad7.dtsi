@@ -25,6 +25,76 @@
 		clock-frequency = <55384615>;
 		clock-output-names = "spi3-nclk";
 	};
+
+	wlan_vdd: regulator-wlan-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "wlan-vdd";
+		gpio = <&pmu_gpio 14 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		off-on-delay-us = <100000>;
+	};
+};
+
+&d2365_pmic {
+	pmu_gpio: gpio {
+		compatible = "apple,d2365-pmic-gpio";
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-reserved-ranges = <0 14>, <15 9>;
+	};
+};
+
+&{/soc} {
+	wlan_uart2: wlan-platform-control@20a0c8000 {
+		compatible = "apple,t8010-wlan-uart-provider";
+		reg = <0x2 0x0a0c8000 0x0 0x4000>;
+		pinctrl-0 = <&wlan_uart2_pins>;
+		pinctrl-names = "default";
+		power-domains = <&ps_uart2>;
+		status = "okay";
+	};
+};
+
+&pcie0 {
+	compatible = "apple,j172-pcie", "apple,t8010-pcie";
+	iommu-map = <0x100 &pcie0_dart0 0 1>,
+		    <0x200 &pcie0_dart3 0 1>;
+	apple,preinit-phy-port-mask = <0x4>;
+	pinctrl-0 = <&wifi_clkreq>;
+	pinctrl-names = "default";
+
+	pci@3,0 {
+		device_type = "pci";
+		reg = <0x1800 0x0 0x0 0x0 0x0>;
+		bus-range = <2 2>;
+		max-link-speed = <1>;
+		apple,manual-availability-iommu = <&pcie0_dart3 0>;
+		apple,link-retry-after-power-cycle;
+		apple,hardware-trained-phy-lane;
+		apple,endpoint-power-after-link-setup;
+		apple,inherited-perst-before-link-setup;
+		reset-gpios = <&pinctrl_ap 15 GPIO_ACTIVE_LOW>;
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+
+		wifi@0,0 {
+			compatible = "pci14e4,43dc";
+			reg = <0x20000 0x0 0x0 0x0 0x0>;
+			interrupts-extended = <&pinctrl_ap 147 IRQ_TYPE_EDGE_FALLING>;
+			interrupt-names = "host-wake";
+			apple,wlan-uart = <&wlan_uart2>;
+			device-wake-gpios = <&pinctrl_ap 23 GPIO_ACTIVE_HIGH>;
+			vdd-supply = <&wlan_vdd>;
+			apple,antenna-sku = "XX";
+			brcm,board-type = "apple,rudderb";
+		};
+	};
+};
+
+&pcie0_dart3 {
+	status = "okay";
 };
 
 &pinctrl_ap {
@@ -35,6 +105,15 @@
 	i2c1_gpio_pins: i2c1-gpio-pins {
 		pinmux = <APPLE_PINMUX(40, 0)>,
 			 <APPLE_PINMUX(39, 0)>;
+	};
+
+	wifi_clkreq: wifi-clkreq-pins {
+		pinmux = <APPLE_PINMUX(19, 1)>;
+	};
+
+	wlan_uart2_pins: wlan-uart2-pins {
+		pinmux = <APPLE_PINMUX(148, 1)>,
+			 <APPLE_PINMUX(150, 1)>;
 	};
 
 	touch_display_sync_active: touch-display-sync-active-pins {

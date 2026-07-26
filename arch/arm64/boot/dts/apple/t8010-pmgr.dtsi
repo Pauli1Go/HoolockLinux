@@ -102,12 +102,13 @@
 		apple,always-on; /* Core device */
 	};
 
-	ps_pcie_ref: power-controller@80148 {
+	ps_pcie_ref: clock-controller@80148 {
 		compatible = "apple,t8010-pmgr-pwrstate", "apple,pmgr-pwrstate";
 		reg = <0x80148 4>;
-		#power-domain-cells = <0>;
-		#reset-cells = <0>;
+		#clock-cells = <0>;
 		label = "pcie_ref";
+		apple,clock-gate-only;
+		apple,manual-pm;
 	};
 
 	ps_socuvd: power-controller@80150 {
@@ -603,14 +604,16 @@
 		#power-domain-cells = <0>;
 		#reset-cells = <0>;
 		label = "pcie";
+		apple,manual-pm;
 	};
 
-	ps_pcie_aux: power-controller@80320 {
+	ps_pcie_aux: clock-controller@80320 {
 		compatible = "apple,t8010-pmgr-pwrstate", "apple,pmgr-pwrstate";
 		reg = <0x80320 4>;
-		#power-domain-cells = <0>;
-		#reset-cells = <0>;
+		#clock-cells = <0>;
 		label = "pcie_aux";
+		apple,clock-gate-only;
+		apple,manual-pm;
 	};
 
 	ps_vdec0: power-controller@80300 {

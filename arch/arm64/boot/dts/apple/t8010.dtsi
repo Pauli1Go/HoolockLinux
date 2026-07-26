@@ -330,6 +330,16 @@
 			status = "disabled";
 		};
 
+		pcie0_dart3: iommu@604008000 {
+			compatible = "apple,t8010-dart", "apple,s5l8960x-dart";
+			reg = <0x6 0x04008000 0x0 0x4000>;
+			#iommu-cells = <1>;
+			interrupts = <AIC_IRQ 280 IRQ_TYPE_LEVEL_HIGH>;
+			power-domains = <&ps_pcie>;
+			apple,dma-range = <0x0 0x80000000 0x0 0x3ffff000>;
+			status = "disabled";
+		};
+
 		pcie0: pcie@610000000 {
 			compatible = "apple,t8010-pcie";
 			device_type = "pci";
@@ -373,11 +383,10 @@
 			ranges = <0x03000000 0x0 0xc0000000
 				  0x7 0xc0000000 0x0 0x40000000>;
 
-			clocks = <&clkref>, <&clkref>, <&clkref>;
-			clock-names = "core", "aux", "ref";
-			power-domains = <&ps_pcie>, <&ps_pcie_aux>,
-					<&ps_pcie_ref>;
-			power-domain-names = "core", "aux", "ref";
+			power-domains = <&ps_pcie>;
+			clocks = <&ps_pcie_aux>,
+				 <&ps_pcie_ref>;
+			clock-names = "aux", "ref";
 			status = "disabled";
 
 			pci@0,0 {
