@@ -7,6 +7,8 @@
 #include <linux/of_irq.h>
 #include <linux/of_net.h>
 #include <linux/clk.h>
+#include <linux/nvmem-consumer.h>
+#include <linux/slab.h>
 
 #include <defs.h>
 #include "debug.h"
@@ -66,6 +68,59 @@ static int brcmf_of_get_country_codes(struct device *dev,
 	return 0;
 }
 
+static int brcmf_of_get_cal_blob(struct device *dev,
+				 struct brcmf_mp_device *settings)
+{
+	struct device_node *np = dev->of_node;
+	struct nvmem_cell *cell;
+	const void *prop;
+	size_t len;
+	void *buf;
+	int err;
+
+	/* The WLAN calibration blob is normally stored in SROM, but some
+	 * platforms pass it via the DT or an NVMEM cell instead.
+	 */
+	if (!np)
+		return 0;
+
+	prop = of_get_property(np, "brcm,cal-blob", &settings->cal_size);
+	if (prop && settings->cal_size) {
+		settings->cal_blob = prop;
+		return 0;
+	}
+
+	cell = nvmem_cell_get(dev, "calibration");
+	if (IS_ERR(cell)) {
+		err = PTR_ERR(cell);
+		if (err == -ENOENT || err == -EOPNOTSUPP)
+			return 0;
+
+		return err;
+	}
+
+	buf = nvmem_cell_read(cell, &len);
+	nvmem_cell_put(cell);
+	if (IS_ERR(buf))
+		return PTR_ERR(buf);
+
+	if (!len) {
+		kfree(buf);
+		return 0;
+	}
+
+	if (len > INT_MAX) {
+		kfree(buf);
+		return -EOVERFLOW;
+	}
+
+	settings->cal_blob = buf;
+	settings->cal_size = (int)len;
+	settings->cal_blob_allocated = true;
+
+	return 0;
+}
+
 int brcmf_of_probe(struct device *dev, enum brcmf_bus_type bus_type,
 		   struct brcmf_mp_device *settings)
 {
@@ -74,6 +129,7 @@ int brcmf_of_probe(struct device *dev, enum brcmf_bus_type bus_type,
 	struct of_phandle_args oirq;
 	struct clk *clk;
 	const char *prop;
+	int board_type_err;
 	int irq;
 	int err;
 	u32 irqf;
@@ -82,23 +138,20 @@ int brcmf_of_probe(struct device *dev, enum brcmf_bus_type bus_type,
 	/* Apple ARM64 platforms have their own idea of board type, passed in
 	 * via the device tree. They also have an antenna SKU parameter
 	 */
-	err = of_property_read_string(np, "brcm,board-type", &prop);
-	if (!err)
+	board_type_err = of_property_read_string(np, "brcm,board-type", &prop);
+	if (!board_type_err)
 		settings->board_type = prop;
 
 	if (!of_property_read_string(np, "apple,antenna-sku", &prop))
 		settings->antenna_sku = prop;
 
-	/* The WLAN calibration blob is normally stored in SROM, but Apple
-	 * ARM64 platforms pass it via the DT instead.
-	 */
-	prop = of_get_property(np, "brcm,cal-blob", &settings->cal_size);
-	if (prop && settings->cal_size)
-		settings->cal_blob = prop;
+	err = brcmf_of_get_cal_blob(dev, settings);
+	if (err)
+		return err;
 
 	/* Set board-type to the first string of the machine compatible prop */
 	root = of_find_node_by_path("/");
-	if (root && err) {
+	if (root && board_type_err) {
 		char *board_type = NULL;
 		const char *tmp;
 
@@ -121,16 +174,19 @@ int brcmf_of_probe(struct device *dev, enum brcmf_bus_type bus_type,
 
 	brcmf_dbg(INFO, "%s LPO clock\n", clk ? "enable" : "no");
 
+	if (np) {
+		err = brcmf_of_get_country_codes(dev, settings);
+		if (err)
+			brcmf_err("failed to get OF country code map (err=%d)\n",
+				  err);
+
+		err = of_get_mac_address(np, settings->mac);
+		if (err == -EPROBE_DEFER)
+			return err;
+	}
+
 	if (!np || !of_device_is_compatible(np, "brcm,bcm4329-fmac"))
 		return 0;
-
-	err = brcmf_of_get_country_codes(dev, settings);
-	if (err)
-		brcmf_err("failed to get OF country code map (err=%d)\n", err);
-
-	err = of_get_mac_address(np, settings->mac);
-	if (err == -EPROBE_DEFER)
-		return err;
 
 	if (bus_type != BRCMF_BUSTYPE_SDIO)
 		return 0;

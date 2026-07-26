@@ -8,6 +8,7 @@
 #include <linux/netdevice.h>
 #include <linux/module.h>
 #include <linux/firmware.h>
+#include <linux/slab.h>
 #include <brcmu_wifi.h>
 #include <brcmu_utils.h>
 #include "core.h"
@@ -516,6 +517,7 @@ struct brcmf_mp_device *brcmf_get_module_param(struct device *dev,
 	struct brcmf_mp_device *settings;
 	struct brcmfmac_pd_device *device_pd;
 	bool found;
+	int err;
 	int i;
 
 	brcmf_dbg(INFO, "Enter, bus=%d, chip=%d, rev=%d\n", bus_type, chip,
@@ -561,9 +563,10 @@ struct brcmf_mp_device *brcmf_get_module_param(struct device *dev,
 	if (!found) {
 		/* No platform data for this device, try OF and DMI data */
 		brcmf_dmi_probe(settings, chip, chiprev);
-		if (brcmf_of_probe(dev, bus_type, settings) == -EPROBE_DEFER) {
-			kfree(settings);
-			return ERR_PTR(-EPROBE_DEFER);
+		err = brcmf_of_probe(dev, bus_type, settings);
+		if (err) {
+			brcmf_release_module_param(settings);
+			return ERR_PTR(err);
 		}
 		brcmf_acpi_probe(dev, bus_type, settings);
 	}
@@ -572,6 +575,8 @@ struct brcmf_mp_device *brcmf_get_module_param(struct device *dev,
 
 void brcmf_release_module_param(struct brcmf_mp_device *module_param)
 {
+	if (module_param->cal_blob_allocated)
+		kfree(module_param->cal_blob);
 	kfree(module_param);
 }
 
@@ -633,4 +638,3 @@ static void __exit brcmfmac_module_exit(void)
 
 module_init(brcmfmac_module_init);
 module_exit(brcmfmac_module_exit);
-
