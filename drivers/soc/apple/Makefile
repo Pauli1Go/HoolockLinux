@@ -15,3 +15,4 @@ apple-tunable-y = tunable.o
 obj-$(CONFIG_APPLE_PMP_T8015_V1) += pmp_t8015_v1.o
 obj-$(CONFIG_APPLE_SIO) += apple-sio.o
 apple-sio-y := apple-sio-core.o
+obj-$(CONFIG_APPLE_T8010_WLAN) += apple-t8010-wlan.o
