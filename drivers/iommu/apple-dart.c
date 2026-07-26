@@ -23,6 +23,7 @@
 #include <linux/iopoll.h>
 #include <linux/minmax.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_iommu.h>
@@ -32,6 +33,8 @@
 #include <linux/slab.h>
 #include <linux/swab.h>
 #include <linux/types.h>
+
+#include <linux/apple-dart.h>
 
 #include "dma-iommu.h"
 
@@ -64,6 +67,11 @@
 
 #define DART_S5L8960X_TCR			0xc
 #define DART_S5L8960X_TCR_BITS_PER_STREAM	8
+#define DART_S5L8960X_MAX_STREAMS		4
+
+#define DART_S5L8960X_RELOAD_CONFIG	0x20
+#define DART_S5L8960X_RELOAD_REMAP	0x2c
+#define DART_S5L8960X_RELOAD_CONFIG2	0x30
 
 #define DART_S5L8960X_TTBR	0x40
 
@@ -225,6 +233,8 @@ struct apple_dart {
 	u32 save_ttbr[DART_MAX_STREAMS][DART_MAX_TTBR];
 };
 
+static DEFINE_MUTEX(apple_dart_groups_lock);
+
 struct apple_dart_hw {
 	enum dart_type type;
 	irqreturn_t (*irq_handler)(int irq, void *dev);
@@ -363,11 +373,14 @@ static u32 apple_dart_s5l8960x_read_tcr(struct apple_dart *dart, u32 sid)
 
 static void apple_dart_s5l8960x_write_tcr(struct apple_dart *dart, u32 sid, u32 val)
 {
-	WARN_ON(sid >= 4);
-	u32 tcr = readl(dart->regs + dart->hw->tcr);
+	u32 shift = sid * DART_S5L8960X_TCR_BITS_PER_STREAM;
+	u32 tcr;
 
-	tcr &= 0xff << (sid * DART_S5L8960X_TCR_BITS_PER_STREAM);
-	tcr |= val;
+	WARN_ON(sid >= DART_S5L8960X_MAX_STREAMS);
+	tcr = readl(dart->regs + dart->hw->tcr);
+
+	tcr &= ~(0xff << shift);
+	tcr |= (val & 0xff) << shift;
 	writel(tcr, dart->regs + dart->hw->tcr);
 }
 
@@ -435,23 +448,30 @@ apple_dart_hw_clear_all_ttbrs(struct apple_dart_stream_map *stream_map)
 }
 
 static int
-apple_dart_s5l8960x_hw_stream_command(struct apple_dart_stream_map *stream_map,
-			     u32 command)
+apple_dart_s5l8960x_command_locked(struct apple_dart_stream_map *stream_map,
+				   u32 command)
 {
-	unsigned long flags;
-	int ret;
 	u32 command_reg;
-
-	spin_lock_irqsave(&stream_map->dart->lock, flags);
 
 	writel(stream_map->sidmap[0] << DART_S5L8960X_STREAM_COMMAND_SID_SHIFT |
 	       command, stream_map->dart->regs + DART_S5L8960X_STREAM_COMMAND);
 
-	ret = readl_poll_timeout_atomic(
-		stream_map->dart->regs + DART_S5L8960X_STREAM_COMMAND, command_reg,
-		!(command_reg & DART_S5L8960X_STREAM_COMMAND_BUSY), 1,
-		DART_STREAM_COMMAND_BUSY_TIMEOUT);
+	return readl_poll_timeout_atomic(stream_map->dart->regs +
+					 DART_S5L8960X_STREAM_COMMAND,
+					 command_reg,
+			!(command_reg & DART_S5L8960X_STREAM_COMMAND_BUSY), 1,
+			DART_STREAM_COMMAND_BUSY_TIMEOUT);
+}
 
+static int
+apple_dart_s5l8960x_hw_stream_command(struct apple_dart_stream_map *stream_map,
+				      u32 command)
+{
+	unsigned long flags;
+	int ret;
+
+	spin_lock_irqsave(&stream_map->dart->lock, flags);
+	ret = apple_dart_s5l8960x_command_locked(stream_map, command);
 	spin_unlock_irqrestore(&stream_map->dart->lock, flags);
 
 	if (ret) {
@@ -594,6 +614,98 @@ static int apple_dart_hw_reset(struct apple_dart *dart)
 
 	return dart->hw->invalidate_tlb(&stream_map);
 }
+
+static int
+apple_dart_s5l8960x_reload_configuration(struct apple_dart *dart, u32 sid)
+{
+	struct apple_dart_stream_map stream_map = { .dart = dart };
+	u32 ttbr[DART_S5L8960X_MAX_STREAMS][DART_MAX_TTBR];
+	u32 shift = sid * DART_S5L8960X_TCR_BITS_PER_STREAM;
+	unsigned long flags;
+	unsigned int idx, stream;
+	u32 config;
+	u32 config2;
+	u32 command = DART_S5L8960X_STREAM_COMMAND_INVALIDATE;
+	u32 remap;
+	u32 tcr;
+	int ret;
+
+	spin_lock_irqsave(&dart->lock, flags);
+	config = readl(dart->regs + DART_S5L8960X_RELOAD_CONFIG);
+	config2 = readl(dart->regs + DART_S5L8960X_RELOAD_CONFIG2);
+	remap = readl(dart->regs + DART_S5L8960X_RELOAD_REMAP);
+	tcr = readl(dart->regs + DART_S5L8960X_TCR);
+
+	for (stream = 0; stream < dart->num_streams; stream++)
+		for (idx = 0; idx < dart->hw->ttbr_count; idx++)
+			ttbr[stream][idx] = readl(dart->regs +
+						       DART_TTBR(dart, stream, idx));
+
+	/*
+	 * Apple's manual-availability path restores the remap and TTBR state,
+	 * invalidates all streams, then restores TCR and the remaining config.
+	 * Keep the selected stream translated while issuing the S5L8960X command.
+	 */
+	tcr &= ~(0xff << shift);
+	tcr |= (dart->hw->tcr_enabled & 0xff) << shift;
+	apple_dart_s5l8960x_write_tcr(dart, sid, dart->hw->tcr_enabled);
+	writel(remap, dart->regs + DART_S5L8960X_RELOAD_REMAP);
+	for (stream = 0; stream < dart->num_streams; stream++)
+		for (idx = 0; idx < dart->hw->ttbr_count; idx++)
+			writel(ttbr[stream][idx], dart->regs +
+						      DART_TTBR(dart, stream, idx));
+
+	bitmap_set(stream_map.sidmap, 0, dart->num_streams);
+	ret = apple_dart_s5l8960x_command_locked(&stream_map, command);
+
+	writel(tcr, dart->regs + DART_S5L8960X_TCR);
+	writel(config2, dart->regs + DART_S5L8960X_RELOAD_CONFIG2);
+	writel(config, dart->regs + DART_S5L8960X_RELOAD_CONFIG);
+	spin_unlock_irqrestore(&dart->lock, flags);
+
+	if (ret)
+		dev_err(dart->dev,
+			"busy bit did not clear while reloading configuration\n");
+
+	return ret;
+}
+
+int apple_dart_reload_configuration(struct device_node *np, u32 sid)
+{
+	struct platform_device *pdev;
+	struct apple_dart *dart;
+	int ret;
+
+	pdev = of_find_device_by_node(np);
+	if (!pdev)
+		return -EPROBE_DEFER;
+
+	dart = platform_get_drvdata(pdev);
+	if (!dart) {
+		ret = -EPROBE_DEFER;
+		goto out_put_device;
+	}
+	if (dart->hw->type != DART_S5L8960X) {
+		ret = -EOPNOTSUPP;
+		goto out_put_device;
+	}
+	if (sid >= dart->num_streams) {
+		ret = -EINVAL;
+		goto out_put_device;
+	}
+
+	mutex_lock(&apple_dart_groups_lock);
+	if (dart->sid2group[sid])
+		ret = -EBUSY;
+	else
+		ret = apple_dart_s5l8960x_reload_configuration(dart, sid);
+	mutex_unlock(&apple_dart_groups_lock);
+
+out_put_device:
+	put_device(&pdev->dev);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(apple_dart_reload_configuration);
 
 static void apple_dart_domain_flush_tlb(struct apple_dart_domain *domain)
 {
@@ -958,8 +1070,6 @@ static int apple_dart_of_xlate(struct device *dev,
 
 	return -EINVAL;
 }
-
-static DEFINE_MUTEX(apple_dart_groups_lock);
 
 static void apple_dart_release_group(void *iommu_data)
 {
@@ -1409,7 +1519,7 @@ static const struct apple_dart_hw apple_dart_hw_s5l8960x = {
 	.write_tcr = apple_dart_s5l8960x_write_tcr,
 	.oas = 36,
 	.fmt = APPLE_DART,
-	.max_sid_count = 4,
+	.max_sid_count = DART_S5L8960X_MAX_STREAMS,
 
 	.enable_streams = 0,
 	.lock = 0,
