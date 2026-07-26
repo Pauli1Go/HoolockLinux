@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/soc/apple/apple,t8010-wlan-uart-provider.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Apple T8010 WLAN UART platform control
+
+maintainers:
+  - Paul Praschl <praschlpaul@g-p.at>
+
+description:
+  Apple T8010 devices use a UART-compatible register block as part of the
+  platform-control path for the PCIe WLAN module. The provider selects the
+  WLAN pins, keeps the associated power domain active, and initializes the
+  register block before the PCI endpoint is powered.
+
+properties:
+  compatible:
+    const: apple,t8010-wlan-uart-provider
+
+  reg:
+    maxItems: 1
+
+  pinctrl-0: true
+
+  pinctrl-names:
+    const: default
+
+  power-domains:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - pinctrl-0
+  - pinctrl-names
+  - power-domains
+
+additionalProperties: false
+
+examples:
+  - |
+    / {
+        #address-cells = <2>;
+        #size-cells = <2>;
+
+        wlan-platform-control@20a0c8000 {
+            compatible = "apple,t8010-wlan-uart-provider";
+            reg = <0x2 0x0a0c8000 0x0 0x4000>;
+            pinctrl-0 = <&wlan_uart2_pins>;
+            pinctrl-names = "default";
+            power-domains = <&ps_uart2>;
+        };
+    };
+...

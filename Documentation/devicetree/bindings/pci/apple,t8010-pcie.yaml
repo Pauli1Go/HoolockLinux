@@ -31,7 +31,11 @@ allOf:
 
 properties:
   compatible:
-    const: apple,t8010-pcie
+    oneOf:
+      - const: apple,t8010-pcie
+      - items:
+          - const: apple,j172-pcie
+          - const: apple,t8010-pcie
 
   reg:
     maxItems: 9
@@ -63,27 +67,16 @@ properties:
       - const: nvmmu
 
   clocks:
-    maxItems: 3
+    minItems: 2
+    maxItems: 2
 
   clock-names:
     items:
-      - const: core
       - const: aux
       - const: ref
 
   power-domains:
-    maxItems: 3
-
-  power-domain-names:
-    items:
-      - const: core
-      - const: aux
-      - const: ref
-
-  devpwr-gpios:
-    description:
-      Optional device power GPIOs shared by the root ports.
-    maxItems: 4
+    maxItems: 1
 
   msi-parent: true
 
@@ -106,6 +99,14 @@ properties:
       Phandle of the loader-populated reserved-memory node used as the Apple
       ANS NVMe host-memory buffer.
 
+  apple,preinit-phy-port-mask:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    maximum: 15
+    description:
+      Bit mask of internal root ports whose RC and PHY lane must be initialized
+      without exposing a root bridge. This is used when an enabled port shares
+      PHY state with a firmware-enabled sibling port.
+
   interrupt-controller: true
 
   '#interrupt-cells':
@@ -123,11 +124,65 @@ patternProperties:
 
       clkreq-gpios:
         maxItems: 1
+        description:
+          Software-observable CLKREQ# input. This is optional when the pad is
+          pinmuxed directly to the PCIe controller instead.
+
+      max-link-speed:
+        enum: [1, 2, 3]
+        description:
+          Maximum link generation exposed by this root port. This also limits
+          the controller's Link Capabilities registers when runtime speed
+          retraining is not implemented for the port.
+
+      apple,phy-lane:
+        $ref: /schemas/types.yaml#/definitions/uint32
+        maximum: 3
+        description:
+          PHY IP calibration lane used by this root port. If omitted, the
+          root-port number is used.
+
+      apple,manual-availability-iommu:
+        $ref: /schemas/types.yaml#/definitions/phandle-array
+        maxItems: 1
+        description:
+          DART and stream whose retained configuration must be reloaded while
+          this root port is brought up. This models Apple's manual-availability
+          lifecycle before the endpoint is released from reset.
+
+      apple,link-retry-after-power-cycle:
+        type: boolean
+        description:
+          Retry this root port once after cycling endpoint power when the first
+          complete port-enable lifecycle does not make the link usable.
+
+      apple,hardware-trained-phy-lane:
+        type: boolean
+        description:
+          The PHY lane enters its calibrated operating state as part of
+          enabling the root port. Static lane initialization values must not be
+          applied after the port-enable sequence because that would overwrite
+          the hardware-trained state.
+
+      apple,endpoint-power-after-link-setup:
+        type: boolean
+        description:
+          Keep the endpoint power control disabled through the initial root-port
+          setup, then complete link-event configuration before enabling it.
+          The controller observes link state only after the endpoint power
+          control has completed its stabilization interval and before the
+          endpoint is released from reset.
+
+      apple,inherited-perst-before-link-setup:
+        type: boolean
+        description:
+          Preserve PERST# as an input during the first root-port setup instead
+          of actively asserting it. A single power-cycle retry uses the normal
+          asserted output state.
 
     required:
       - reg
       - reset-gpios
-      - clkreq-gpios
 
     additionalProperties: true
 
@@ -140,7 +195,6 @@ required:
   - clocks
   - clock-names
   - power-domains
-  - power-domain-names
   - bus-range
   - ranges
   - msi-controller
@@ -226,11 +280,9 @@ examples:
                 ranges = <0x03000000 0x0 0xc0000000
                           0x7 0xc0000000 0x0 0x40000000>;
 
-                clocks = <&clkref>, <&clkref>, <&clkref>;
-                clock-names = "core", "aux", "ref";
-                power-domains = <&ps_pcie>, <&ps_pcie_aux>,
-                                <&ps_pcie_ref>;
-                power-domain-names = "core", "aux", "ref";
+                clocks = <&clkref>, <&clkref>;
+                clock-names = "aux", "ref";
+                power-domains = <&ps_pcie>;
 
                 pci@0,0 {
                     device_type = "pci";
