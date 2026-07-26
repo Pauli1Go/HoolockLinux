@@ -55,6 +55,9 @@ properties:
   "#size-cells":
     const: 1
 
+  gpio:
+    $ref: /schemas/gpio/apple,d2365-pmic-gpio.yaml
+
 patternProperties:
   "^charger@[0-9a-f]+$":
     $ref: /schemas/power/supply/apple,d2365-charger.yaml
