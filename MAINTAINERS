@@ -2679,6 +2679,21 @@ F:	drivers/power/supply/apple_bellatrix_power.c
 F:	drivers/power/supply/apple_d2365_charger.c
 F:	drivers/power/supply/bq27xxx_battery_uart_hdq.c
 
+APPLE J172 WI-FI SUPPORT
+M:	Paul Praschl <praschlpaul@g-p.at>
+L:	asahi@lists.linux.dev
+L:	linux-pci@vger.kernel.org
+L:	linux-wireless@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/gpio/apple,d2365-pmic-gpio.yaml
+F:	Documentation/devicetree/bindings/nvmem/layouts/apple,syscfg.yaml
+F:	Documentation/devicetree/bindings/soc/apple/apple,t8010-wlan-uart-provider.yaml
+F:	drivers/gpio/gpio-apple-d2365.c
+F:	drivers/nvmem/layouts/apple-syscfg.c
+F:	drivers/pci/pwrctrl/pci-pwrctrl-apple-wifi.c
+F:	drivers/soc/apple/apple-t8010-wlan.c
+F:	include/linux/apple-dart.h
+
 APPLE J172 TOUCHSCREEN SUPPORT
 M:	Paul Praschl <praschlpaul@g-p.at>
 L:	asahi@lists.linux.dev
