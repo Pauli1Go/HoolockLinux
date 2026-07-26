@@ -51,6 +51,18 @@ config APPLE_SIO
 
 	  Say Y here if you have an Apple T8010 SoC.
 
+config APPLE_T8010_WLAN
+	tristate "Apple T8010 WLAN platform control"
+	depends on PM
+	depends on ARCH_APPLE || COMPILE_TEST
+	help
+	  Support the UART-compatible platform-control block associated with
+	  PCIe WLAN modules on Apple T8010 devices. The driver initializes the
+	  block and provides the runtime-PM supplier used by the PCI power
+	  control driver.
+
+	  Say Y here if you have an Apple T8010 device with PCIe Wi-Fi.
+
 config APPLE_SART
 	tristate "Apple SART DMA address filter"
 	depends on ARCH_APPLE || COMPILE_TEST

@@ -24,6 +24,19 @@ config PCI_PWRCTRL_GENERIC
 	  of the PCI slots or endpoints are expected to be defined in the
 	  devicetree node of the PCI bridge or endpoint.
 
+config PCI_PWRCTRL_APPLE_WIFI
+	tristate "Apple PCIe Wi-Fi power control"
+	depends on ARCH_APPLE || COMPILE_TEST
+	depends on APPLE_T8010_WLAN
+	depends on GPIOLIB
+	depends on REGULATOR
+	select PCI_PWRCTRL
+	help
+	  Say Y here to enable the endpoint power sequence used by Apple PCIe
+	  Wi-Fi modules with separate device-wake and REG_ON GPIOs. The power
+	  control is instantiated from a firmware-described PCI endpoint before
+	  the host bridge scans the bus.
+
 config PCI_PWRCTRL_TC9563
 	tristate "PCI Power Control driver for TC9563 PCIe switch"
 	select PCI_PWRCTRL
