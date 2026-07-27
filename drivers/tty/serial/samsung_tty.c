@@ -22,6 +22,7 @@
  */
 
 #include <linux/console.h>
+#include <linux/bitfield.h>
 #include <linux/clk.h>
 #include <linux/cpufreq.h>
 #include <linux/delay.h>
@@ -65,6 +66,11 @@
 /* flag to ignore all characters coming in */
 #define RXSTAT_DUMMY_READ (0x10000000)
 
+#define T8010_UBRDIV_DIV	GENMASK(15, 0)
+#define T8010_UBRDIV_OSR	GENMASK(19, 16)
+#define T8010_MAX_OVERSAMPLING	16
+#define T8010_MIN_OVERSAMPLING	4
+
 enum s3c24xx_port_type {
 	TYPE_S3C6400,
 	TYPE_APPLE_S5L,
@@ -96,6 +102,7 @@ struct s3c24xx_serial_drv_data {
 	const struct s3c24xx_uart_info	info;
 	const struct s3c2410_uartcfg	def_cfg;
 	const unsigned int		fifosize[UART_NR];
+	bool				has_ubrdiv_oversampling;
 };
 
 struct s3c24xx_uart_dma {
@@ -1370,6 +1377,7 @@ static unsigned int s3c24xx_serial_getclk(struct s3c24xx_uart_port *ourport,
 			u8 *clk_num)
 {
 	const struct s3c24xx_uart_info *info = ourport->info;
+	const struct s3c24xx_serial_drv_data *drv_data = ourport->drv_data;
 	struct clk *clk;
 	unsigned long rate;
 	unsigned int baud, quot, best_quot = 0;
@@ -1407,13 +1415,40 @@ static unsigned int s3c24xx_serial_getclk(struct s3c24xx_uart_port *ourport,
 			 * is easy enough to recalculate.
 			 */
 
-			quot = div / 16;
+			quot = div / 16 - 1;
 			baud = rate / div;
+		} else if (drv_data->has_ubrdiv_oversampling) {
+			unsigned int oversampling;
+			unsigned int divisor;
+
+			oversampling = min_t(unsigned long,
+					     T8010_MAX_OVERSAMPLING,
+					     rate / req_baud);
+			if (oversampling < T8010_MIN_OVERSAMPLING) {
+				clk_put(clk);
+				continue;
+			}
+
+			divisor = DIV_ROUND_CLOSEST(rate,
+						    (unsigned long)oversampling *
+						    req_baud);
+			if (!divisor ||
+			    divisor > FIELD_MAX(T8010_UBRDIV_DIV) + 1) {
+				clk_put(clk);
+				continue;
+			}
+
+			baud = rate / (divisor * oversampling);
+			quot = FIELD_PREP(T8010_UBRDIV_DIV, divisor - 1) |
+				FIELD_PREP(T8010_UBRDIV_OSR,
+					   T8010_MAX_OVERSAMPLING -
+					   oversampling);
 		} else {
-			quot = (rate + (8 * req_baud)) / (16 * req_baud);
+			quot = DIV_ROUND_CLOSEST(rate,
+						 16UL * req_baud);
 			baud = rate / (quot * 16);
+			quot--;
 		}
-		quot--;
 
 		calc_deviation = abs(req_baud - baud);
 
@@ -2279,6 +2314,8 @@ static void
 s3c24xx_serial_get_options(struct uart_port *port, int *baud,
 			   int *parity, int *bits)
 {
+	const struct s3c24xx_serial_drv_data *drv_data =
+		to_ourport(port)->drv_data;
 	struct clk *clk;
 	unsigned long rate;
 	u32 ulcon, ucon, ubrdiv;
@@ -2331,7 +2368,19 @@ s3c24xx_serial_get_options(struct uart_port *port, int *baud,
 		else
 			rate = 1;
 
-		*baud = rate / (16 * (ubrdiv + 1));
+		if (drv_data->has_ubrdiv_oversampling) {
+			unsigned int divisor;
+			unsigned int oversampling;
+
+			divisor = FIELD_GET(T8010_UBRDIV_DIV, ubrdiv) + 1;
+			oversampling = T8010_MAX_OVERSAMPLING -
+				FIELD_GET(T8010_UBRDIV_OSR, ubrdiv);
+			if (oversampling < T8010_MIN_OVERSAMPLING)
+				oversampling = T8010_MAX_OVERSAMPLING;
+			*baud = rate / (oversampling * divisor);
+		} else {
+			*baud = rate / (16 * (ubrdiv + 1));
+		}
 		dev_dbg(port->dev, "calculated baud %d\n", *baud);
 	}
 }
@@ -2558,9 +2607,37 @@ static const struct s3c24xx_serial_drv_data s5l_serial_drv_data = {
 		.ufcon		= S3C2410_UFCON_DEFAULT,
 	},
 };
+
+static const struct s3c24xx_serial_drv_data t8010_serial_drv_data = {
+	.info = {
+		.name		= "Apple T8010 UART",
+		.type		= TYPE_APPLE_S5L,
+		.port_type	= PORT_8250,
+		.iotype		= UPIO_MEM32,
+		.fifosize	= 16,
+		.rx_fifomask	= S3C2410_UFSTAT_RXMASK,
+		.rx_fifoshift	= S3C2410_UFSTAT_RXSHIFT,
+		.rx_fifofull	= S3C2410_UFSTAT_RXFULL,
+		.tx_fifofull	= S3C2410_UFSTAT_TXFULL,
+		.tx_fifomask	= S3C2410_UFSTAT_TXMASK,
+		.tx_fifoshift	= S3C2410_UFSTAT_TXSHIFT,
+		.def_clk_sel	= S3C2410_UCON_CLKSEL0,
+		.num_clks	= 1,
+		.clksel_mask	= 0,
+		.clksel_shift	= 0,
+		.ucon_mask	= APPLE_S5L_UCON_MASK,
+	},
+	.def_cfg = {
+		.ucon		= APPLE_S5L_UCON_DEFAULT,
+		.ufcon		= S3C2410_UFCON_DEFAULT,
+	},
+	.has_ubrdiv_oversampling = true,
+};
 #define S5L_SERIAL_DRV_DATA (&s5l_serial_drv_data)
+#define T8010_SERIAL_DRV_DATA (&t8010_serial_drv_data)
 #else
 #define S5L_SERIAL_DRV_DATA NULL
+#define T8010_SERIAL_DRV_DATA NULL
 #endif
 
 #if defined(CONFIG_ARCH_ARTPEC)
@@ -2611,6 +2688,9 @@ static const struct platform_device_id s3c24xx_serial_driver_ids[] = {
 		.name		= "s5l-uart",
 		.driver_data	= (kernel_ulong_t)S5L_SERIAL_DRV_DATA,
 	}, {
+		.name		= "t8010-uart",
+		.driver_data	= (kernel_ulong_t)T8010_SERIAL_DRV_DATA,
+	}, {
 		.name		= "exynos850-uart",
 		.driver_data	= (kernel_ulong_t)EXYNOS850_SERIAL_DRV_DATA,
 	}, {
@@ -2639,6 +2719,8 @@ static const struct of_device_id s3c24xx_uart_dt_match[] = {
 		.data = EXYNOS5433_SERIAL_DRV_DATA },
 	{ .compatible = "apple,s5l-uart",
 		.data = S5L_SERIAL_DRV_DATA },
+	{ .compatible = "apple,t8010-uart",
+		.data = T8010_SERIAL_DRV_DATA },
 	{ .compatible = "samsung,exynos850-uart",
 		.data = EXYNOS850_SERIAL_DRV_DATA },
 	{ .compatible = "axis,artpec8-uart",
