@@ -14,6 +14,10 @@
 #include "t8010-ipad6.dtsi"
 
 / {
+	aliases {
+		bluetooth0 = &bluetooth;
+	};
+
 	ipad7_battery: battery {
 		compatible = "simple-battery";
 		charge-full-design-microamp-hours = <8557000>;
@@ -40,7 +44,7 @@
 		compatible = "apple,d2365-pmic-gpio";
 		gpio-controller;
 		#gpio-cells = <2>;
-		gpio-reserved-ranges = <0 14>, <15 9>;
+		gpio-reserved-ranges = <0 13>, <15 9>;
 	};
 };
 
@@ -102,6 +106,13 @@
 		pinmux = <APPLE_PINMUX(173, 1)>;
 	};
 
+	bluetooth_uart3_pins: bluetooth-uart3-pins {
+		pinmux = <APPLE_PINMUX(134, 1)>,
+			 <APPLE_PINMUX(135, 1)>,
+			 <APPLE_PINMUX(136, 1)>,
+			 <APPLE_PINMUX(137, 1)>;
+	};
+
 	i2c1_gpio_pins: i2c1-gpio-pins {
 		pinmux = <APPLE_PINMUX(40, 0)>,
 			 <APPLE_PINMUX(39, 0)>;
@@ -119,6 +130,22 @@
 	touch_display_sync_active: touch-display-sync-active-pins {
 		pinmux = <APPLE_PINMUX(176, 1)>,
 			 <APPLE_PINMUX(177, 1)>;
+	};
+};
+
+&serial3 {
+	pinctrl-0 = <&bluetooth_uart3_pins>;
+	pinctrl-names = "default";
+	uart-has-rtscts;
+	status = "okay";
+
+	bluetooth: bluetooth {
+		compatible = "apple,j172-bcm4355c1-bt",
+			     "brcm,bcm4355c1-bt";
+		current-speed = <115200>;
+		max-speed = <3000000>;
+		shutdown-gpios = <&pmu_gpio 13 GPIO_ACTIVE_HIGH>;
+		device-wakeup-gpios = <&pinctrl_ap 88 GPIO_ACTIVE_HIGH>;
 	};
 };
 
