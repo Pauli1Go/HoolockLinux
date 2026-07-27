@@ -96,6 +96,9 @@ struct s3c24xx_serial_drv_data {
 	const struct s3c24xx_uart_info	info;
 	const struct s3c2410_uartcfg	def_cfg;
 	const unsigned int		fifosize[UART_NR];
+	unsigned int			baud_divisor;
+	unsigned int			high_speed_baud_divisor;
+	u32				high_speed_ubrdiv;
 };
 
 struct s3c24xx_uart_dma {
@@ -1370,6 +1373,8 @@ static unsigned int s3c24xx_serial_getclk(struct s3c24xx_uart_port *ourport,
 			u8 *clk_num)
 {
 	const struct s3c24xx_uart_info *info = ourport->info;
+	const struct s3c24xx_serial_drv_data *drv_data = ourport->drv_data;
+	unsigned int default_baud_divisor = drv_data->baud_divisor ?: 16;
 	struct clk *clk;
 	unsigned long rate;
 	unsigned int baud, quot, best_quot = 0;
@@ -1410,10 +1415,24 @@ static unsigned int s3c24xx_serial_getclk(struct s3c24xx_uart_port *ourport,
 			quot = div / 16;
 			baud = rate / div;
 		} else {
-			quot = (rate + (8 * req_baud)) / (16 * req_baud);
-			baud = rate / (quot * 16);
+			unsigned int baud_divisor = default_baud_divisor;
+			u32 ubrdiv = 0;
+
+			if (drv_data->high_speed_baud_divisor &&
+			    req_baud > rate / default_baud_divisor) {
+				baud_divisor = drv_data->high_speed_baud_divisor;
+				ubrdiv = drv_data->high_speed_ubrdiv;
+			}
+
+			quot = DIV_ROUND_CLOSEST(rate,
+						 (unsigned long)baud_divisor *
+						 req_baud);
+			baud = rate / (quot * baud_divisor);
+			quot = (quot - 1) | ubrdiv;
 		}
-		quot--;
+
+		if (ourport->info->has_divslot)
+			quot--;
 
 		calc_deviation = abs(req_baud - baud);
 
@@ -1468,7 +1487,7 @@ static void s3c24xx_serial_set_termios(struct uart_port *port,
 	struct s3c24xx_uart_port *ourport = to_ourport(port);
 	struct clk *clk = ERR_PTR(-EINVAL);
 	unsigned long flags;
-	unsigned int baud, quot;
+	unsigned int baud, max_baud, quot;
 	unsigned int udivslot = 0;
 	u32 ulcon, umcon;
 	u8 clk_sel = 0;
@@ -1483,7 +1502,9 @@ static void s3c24xx_serial_set_termios(struct uart_port *port,
 	 * Ask the core to calculate the divisor for us.
 	 */
 
-	baud = uart_get_baud_rate(port, termios, old, 0, 3000000);
+	max_baud = ourport->drv_data->high_speed_baud_divisor ?
+		   6000000 : 3000000;
+	baud = uart_get_baud_rate(port, termios, old, 0, max_baud);
 	quot = s3c24xx_serial_getclk(ourport, baud, &clk, &clk_sel);
 	if (baud == 38400 && (port->flags & UPF_SPD_MASK) == UPF_SPD_CUST)
 		quot = port->custom_divisor;
@@ -2558,9 +2579,39 @@ static const struct s3c24xx_serial_drv_data s5l_serial_drv_data = {
 		.ufcon		= S3C2410_UFCON_DEFAULT,
 	},
 };
+
+static const struct s3c24xx_serial_drv_data t8010_serial_drv_data = {
+	.info = {
+		.name		= "Apple T8010 UART",
+		.type		= TYPE_APPLE_S5L,
+		.port_type	= PORT_8250,
+		.iotype		= UPIO_MEM32,
+		.fifosize	= 16,
+		.rx_fifomask	= S3C2410_UFSTAT_RXMASK,
+		.rx_fifoshift	= S3C2410_UFSTAT_RXSHIFT,
+		.rx_fifofull	= S3C2410_UFSTAT_RXFULL,
+		.tx_fifofull	= S3C2410_UFSTAT_TXFULL,
+		.tx_fifomask	= S3C2410_UFSTAT_TXMASK,
+		.tx_fifoshift	= S3C2410_UFSTAT_TXSHIFT,
+		.def_clk_sel	= S3C2410_UCON_CLKSEL0,
+		.num_clks	= 1,
+		.clksel_mask	= 0,
+		.clksel_shift	= 0,
+		.ucon_mask	= APPLE_S5L_UCON_MASK,
+	},
+	.def_cfg = {
+		.ucon		= APPLE_S5L_UCON_DEFAULT,
+		.ufcon		= S3C2410_UFCON_DEFAULT,
+	},
+	.baud_divisor = 8,
+	.high_speed_baud_divisor = 4,
+	.high_speed_ubrdiv = BIT(19),
+};
 #define S5L_SERIAL_DRV_DATA (&s5l_serial_drv_data)
+#define T8010_SERIAL_DRV_DATA (&t8010_serial_drv_data)
 #else
 #define S5L_SERIAL_DRV_DATA NULL
+#define T8010_SERIAL_DRV_DATA NULL
 #endif
 
 #if defined(CONFIG_ARCH_ARTPEC)
@@ -2611,6 +2662,9 @@ static const struct platform_device_id s3c24xx_serial_driver_ids[] = {
 		.name		= "s5l-uart",
 		.driver_data	= (kernel_ulong_t)S5L_SERIAL_DRV_DATA,
 	}, {
+		.name		= "t8010-uart",
+		.driver_data	= (kernel_ulong_t)T8010_SERIAL_DRV_DATA,
+	}, {
 		.name		= "exynos850-uart",
 		.driver_data	= (kernel_ulong_t)EXYNOS850_SERIAL_DRV_DATA,
 	}, {
@@ -2639,6 +2693,8 @@ static const struct of_device_id s3c24xx_uart_dt_match[] = {
 		.data = EXYNOS5433_SERIAL_DRV_DATA },
 	{ .compatible = "apple,s5l-uart",
 		.data = S5L_SERIAL_DRV_DATA },
+	{ .compatible = "apple,t8010-uart",
+		.data = T8010_SERIAL_DRV_DATA },
 	{ .compatible = "samsung,exynos850-uart",
 		.data = EXYNOS850_SERIAL_DRV_DATA },
 	{ .compatible = "axis,artpec8-uart",
