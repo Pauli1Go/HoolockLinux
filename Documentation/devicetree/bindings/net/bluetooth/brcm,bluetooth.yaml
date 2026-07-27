@@ -16,6 +16,9 @@ properties:
   compatible:
     oneOf:
       - items:
+          - const: apple,j172-bcm4355c1-bt
+          - const: brcm,bcm4355c1-bt
+      - items:
           - enum:
               - infineon,cyw43439-bt
           - const: brcm,bcm4329-bt
@@ -29,6 +32,7 @@ properties:
           - brcm,bcm43438-bt
           - brcm,bcm4345c5
           - brcm,bcm43540-bt
+          - brcm,bcm4355c1-bt
           - brcm,bcm4335a0
           - brcm,bcm4349-bt
           - cypress,cyw4373a0-bt
