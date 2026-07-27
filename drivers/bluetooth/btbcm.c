@@ -274,7 +274,7 @@ int btbcm_patchram(struct hci_dev *hdev, const struct firmware *fw)
 }
 EXPORT_SYMBOL(btbcm_patchram);
 
-static int btbcm_reset(struct hci_dev *hdev)
+int btbcm_reset(struct hci_dev *hdev)
 {
 	struct sk_buff *skb;
 
@@ -292,6 +292,7 @@ static int btbcm_reset(struct hci_dev *hdev)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(btbcm_reset);
 
 static struct sk_buff *btbcm_read_local_name(struct hci_dev *hdev)
 {
