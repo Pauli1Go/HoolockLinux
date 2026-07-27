@@ -52,6 +52,7 @@ struct bcm_set_pcm_format_params {
 #if IS_ENABLED(CONFIG_BT_BCM)
 
 int btbcm_check_bdaddr(struct hci_dev *hdev);
+int btbcm_reset(struct hci_dev *hdev);
 int btbcm_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr);
 int btbcm_patchram(struct hci_dev *hdev, const struct firmware *fw);
 int btbcm_read_pcm_int_params(struct hci_dev *hdev,
@@ -68,6 +69,11 @@ int btbcm_finalize(struct hci_dev *hdev, bool *fw_load_done, bool use_autobaud_m
 #else
 
 static inline int btbcm_check_bdaddr(struct hci_dev *hdev)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int btbcm_reset(struct hci_dev *hdev)
 {
 	return -EOPNOTSUPP;
 }
