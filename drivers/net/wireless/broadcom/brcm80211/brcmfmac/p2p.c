@@ -429,24 +429,47 @@ static void brcmf_p2p_print_actframe(bool tx, void *frame, u32 frame_len)
 static int brcmf_p2p_set_firmware(struct brcmf_if *ifp, u8 *p2p_mac)
 {
 	struct brcmf_pub *drvr = ifp->drvr;
-	s32 ret = 0;
+	bool fw_down = false;
+	s32 restore_ret;
+	s32 ret;
 
-	brcmf_fil_cmd_int_set(ifp, BRCMF_C_DOWN, 1);
-	brcmf_fil_iovar_int_set(ifp, "apsta", 1);
-	brcmf_fil_cmd_int_set(ifp, BRCMF_C_UP, 1);
+	ret = brcmf_fil_cmd_int_set(ifp, BRCMF_C_DOWN, 1);
+	if (ret)
+		goto fail;
+	fw_down = true;
+
+	ret = brcmf_fil_iovar_int_set(ifp, "apsta", 1);
+	if (ret)
+		goto fail;
+
+	ret = brcmf_fil_cmd_int_set(ifp, BRCMF_C_UP, 1);
+	if (ret)
+		goto fail;
+	fw_down = false;
 
 	/* In case of COB type, firmware has default mac address
 	 * After Initializing firmware, we have to set current mac address to
 	 * firmware for P2P device address. This must be done with discovery
 	 * disabled.
 	 */
-	brcmf_fil_iovar_int_set(ifp, "p2p_disc", 0);
+	ret = brcmf_fil_iovar_int_set(ifp, "p2p_disc", 0);
+	if (ret)
+		goto fail;
 
 	ret = brcmf_fil_iovar_data_set(ifp, "p2p_da_override", p2p_mac,
 				       ETH_ALEN);
-	if (ret)
-		bphy_err(drvr, "failed to update device address ret %d\n", ret);
+	if (!ret)
+		return 0;
 
+fail:
+	if (fw_down) {
+		restore_ret = brcmf_fil_cmd_int_set(ifp, BRCMF_C_UP, 1);
+		if (restore_ret)
+			bphy_err(drvr, "failed to restore firmware ret %d\n",
+				 restore_ret);
+	}
+
+	bphy_err(drvr, "failed to prepare P2P firmware ret %d\n", ret);
 	return ret;
 }
 
@@ -2170,7 +2193,9 @@ static struct wireless_dev *brcmf_p2p_create_p2pdev(struct brcmf_p2p_info *p2p,
 	}
 
 	brcmf_p2p_generate_bss_mac(p2p, addr);
-	brcmf_p2p_set_firmware(pri_ifp, p2p->dev_addr);
+	err = brcmf_p2p_set_firmware(pri_ifp, p2p->dev_addr);
+	if (err)
+		goto fail;
 
 	brcmf_cfg80211_arm_vif_event(p2p->cfg, p2p_vif);
 	brcmf_fweh_p2pdev_setup(pri_ifp, true);
@@ -2537,4 +2562,3 @@ void brcmf_p2p_detach(struct brcmf_p2p_info *p2p)
 	/* just set it all to zero */
 	memset(p2p, 0, sizeof(*p2p));
 }
-
