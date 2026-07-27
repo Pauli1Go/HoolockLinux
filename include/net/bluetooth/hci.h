@@ -359,6 +359,16 @@ enum {
 	 */
 	HCI_QUIRK_FIXUP_LE_EXT_ADV_REPORT_PHY,
 
+	/*
+	 * When this quirk is set, reserved upper bits in the Event_Type field
+	 * of LE Advertising Report events are discarded. This is required for
+	 * some Apple/Broadcom controllers which use those bits for vendor flags.
+	 *
+	 * This quirk can be set before hci_register_dev is called or during the
+	 * hdev->setup vendor callback.
+	 */
+	HCI_QUIRK_FIXUP_LE_ADV_REPORT_EVT_TYPE,
+
 	/* When this quirk is set, the HCI_OP_READ_VOICE_SETTING command is
 	 * skipped. This is required for a subset of the CSR controller clones
 	 * which erroneously claim to support it.
@@ -2895,6 +2905,7 @@ struct hci_ev_le_conn_complete {
 #define LE_ADV_NONCONN_IND	0x03
 #define LE_ADV_SCAN_RSP		0x04
 #define LE_ADV_INVALID		0x05
+#define LE_ADV_EVT_TYPE_MASK	0x0f
 
 /* Legacy event types in extended adv report */
 #define LE_LEGACY_ADV_IND		0x0013
