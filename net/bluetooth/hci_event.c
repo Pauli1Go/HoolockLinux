@@ -6414,6 +6414,7 @@ static void hci_le_adv_report_evt(struct hci_dev *hdev, void *data,
 
 	while (ev->num--) {
 		struct hci_ev_le_advertising_info *info;
+		u8 evt_type;
 		s8 rssi;
 
 		info = hci_le_ev_skb_pull(hdev, skb,
@@ -6428,9 +6429,14 @@ static void hci_le_adv_report_evt(struct hci_dev *hdev, void *data,
 
 		hci_store_wake_reason(hdev, &info->bdaddr, info->bdaddr_type);
 
+		evt_type = info->type;
+		if (hci_test_quirk(hdev,
+				   HCI_QUIRK_FIXUP_LE_ADV_REPORT_EVT_TYPE))
+			evt_type &= LE_ADV_EVT_TYPE_MASK;
+
 		if (info->length <= max_adv_len(hdev)) {
 			rssi = info->data[info->length];
-			process_adv_report(hdev, info->type, &info->bdaddr,
+			process_adv_report(hdev, evt_type, &info->bdaddr,
 					   info->bdaddr_type, NULL, 0,
 					   HCI_ADV_PHY_1M, 0, rssi,
 					   info->data, info->length, false,
