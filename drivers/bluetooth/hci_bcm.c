@@ -53,6 +53,11 @@
  * struct bcm_device_data - device specific data
  * @no_early_set_baudrate: Disallow set baudrate before driver setup()
  * @drive_rts_on_open: drive RTS signal on ->open() when platform requires it
+ * @wake_before_power_cycle: assert BT_WAKE before cycling BT_REG_ON on powerup
+ * @set_baudrate_before_patch: switch to operational speed before Patchram
+ * @host_baudrate_multiplier: host UART rate relative to controller rate
+ * @broken_read_transmit_power: controller cannot read LE min/max TX power
+ * @fixup_le_adv_report_evt_type: controller uses reserved advertising bits
  * @no_uart_clock_set: UART clock set command for >3Mbps mode is unavailable
  * @max_autobaud_speed: max baudrate supported by device in autobaud mode
  * @max_speed: max baudrate supported
@@ -60,6 +65,11 @@
 struct bcm_device_data {
 	bool	no_early_set_baudrate;
 	bool	drive_rts_on_open;
+	bool	wake_before_power_cycle;
+	bool	set_baudrate_before_patch;
+	u8	host_baudrate_multiplier;
+	bool	broken_read_transmit_power;
+	bool	fixup_le_adv_report_evt_type;
 	bool	no_uart_clock_set;
 	u32	max_autobaud_speed;
 	u32	max_speed;
@@ -104,6 +114,11 @@ struct bcm_device_data {
  * @is_suspended: whether flow control is currently disabled
  * @no_early_set_baudrate: don't set_baudrate before setup()
  * @drive_rts_on_open: drive RTS signal on ->open() when platform requires it
+ * @wake_before_power_cycle: assert BT_WAKE before cycling BT_REG_ON on powerup
+ * @set_baudrate_before_patch: switch to operational speed before Patchram
+ * @host_baudrate_multiplier: host UART rate relative to controller rate
+ * @broken_read_transmit_power: controller cannot read LE min/max TX power
+ * @fixup_le_adv_report_evt_type: controller uses reserved advertising bits
  * @no_uart_clock_set: UART clock set command for >3Mbps mode is unavailable
  * @pcm_int_params: keep the initial PCM configuration
  * @use_autobaud_mode: start Bluetooth device in autobaud mode
@@ -145,6 +160,11 @@ struct bcm_device {
 #endif
 	bool			no_early_set_baudrate;
 	bool			drive_rts_on_open;
+	bool			wake_before_power_cycle;
+	bool			set_baudrate_before_patch;
+	u8			host_baudrate_multiplier;
+	bool			broken_read_transmit_power;
+	bool			fixup_le_adv_report_evt_type;
 	bool			no_uart_clock_set;
 	bool			use_autobaud_mode;
 	u8			pcm_int_params[5];
@@ -173,6 +193,15 @@ static inline void host_set_baudrate(struct hci_uart *hu, unsigned int speed)
 		serdev_device_set_baudrate(hu->serdev, speed);
 	else
 		hci_uart_set_baudrate(hu, speed);
+}
+
+static unsigned int bcm_host_baudrate(const struct bcm_device *dev,
+				      unsigned int controller_speed)
+{
+	if (!dev || !dev->host_baudrate_multiplier)
+		return controller_speed;
+
+	return controller_speed * dev->host_baudrate_multiplier;
 }
 
 static int bcm_set_baudrate(struct hci_uart *hu, unsigned int speed)
@@ -277,6 +306,24 @@ static int bcm_gpio_set_power(struct bcm_device *dev, bool powered)
 			goto err_lpo_clk_disable;
 	}
 
+	if (powered && dev->wake_before_power_cycle) {
+		err = dev->set_device_wakeup(dev, true);
+		if (err)
+			goto err_power_cycle;
+
+		err = dev->set_shutdown(dev, false);
+		if (err)
+			goto err_power_cycle;
+
+		usleep_range(100000, 120000);
+
+		err = dev->set_shutdown(dev, true);
+		if (err)
+			goto err_power_cycle;
+
+		goto wait_power;
+	}
+
 	err = dev->set_shutdown(dev, powered);
 	if (err)
 		goto err_txco_clk_disable;
@@ -297,6 +344,7 @@ static int bcm_gpio_set_power(struct bcm_device *dev, bool powered)
 					       dev->supplies);
 	}
 
+wait_power:
 	/* wait for device to power on and come out of reset */
 	usleep_range(100000, 120000);
 
@@ -304,6 +352,10 @@ static int bcm_gpio_set_power(struct bcm_device *dev, bool powered)
 
 	return 0;
 
+err_power_cycle:
+	dev->set_shutdown(dev, false);
+	dev->set_device_wakeup(dev, false);
+	goto err_txco_clk_disable;
 err_revert_shutdown:
 	dev->set_shutdown(dev, !powered);
 err_txco_clk_disable:
@@ -581,6 +633,7 @@ static int bcm_setup(struct hci_uart *hu)
 {
 	struct bcm_data *bcm = hu->priv;
 	bool fw_load_done = false;
+	bool baudrate_set_before_patch;
 	bool use_autobaud_mode = (bcm->dev ? bcm->dev->use_autobaud_mode : 0);
 	unsigned int speed;
 	int err;
@@ -589,6 +642,30 @@ static int bcm_setup(struct hci_uart *hu)
 
 	hu->hdev->set_diag = bcm_set_diag;
 	hu->hdev->set_bdaddr = btbcm_set_bdaddr;
+
+	if (bcm->dev && bcm->dev->broken_read_transmit_power)
+		hci_set_quirk(hu->hdev,
+			      HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER);
+
+	if (bcm->dev && bcm->dev->fixup_le_adv_report_evt_type)
+		hci_set_quirk(hu->hdev,
+			      HCI_QUIRK_FIXUP_LE_ADV_REPORT_EVT_TYPE);
+
+	baudrate_set_before_patch = bcm->dev &&
+				   bcm->dev->set_baudrate_before_patch &&
+				   bcm->dev->oper_speed;
+	if (baudrate_set_before_patch) {
+		err = btbcm_reset(hu->hdev);
+		if (err)
+			return err;
+
+		speed = bcm->dev->oper_speed;
+		err = bcm_set_baudrate(hu, speed);
+		if (err)
+			return err;
+
+		host_set_baudrate(hu, bcm_host_baudrate(bcm->dev, speed));
+	}
 
 	err = btbcm_initialize(hu->hdev, &fw_load_done, use_autobaud_mode);
 	if (err)
@@ -621,7 +698,8 @@ static int bcm_setup(struct hci_uart *hu)
 	if (speed) {
 		err = bcm_set_baudrate(hu, speed);
 		if (!err)
-			host_set_baudrate(hu, speed);
+			host_set_baudrate(hu,
+					  bcm_host_baudrate(bcm->dev, speed));
 	}
 
 	/* PCM parameters if provided */
@@ -1225,6 +1303,7 @@ static int bcm_of_probe(struct bcm_device *bdev)
 {
 	bdev->use_autobaud_mode = device_property_read_bool(bdev->dev,
 							    "brcm,requires-autobaud-mode");
+	device_property_read_u32(bdev->dev, "current-speed", &bdev->init_speed);
 	device_property_read_u32(bdev->dev, "max-speed", &bdev->oper_speed);
 	device_property_read_u8_array(bdev->dev, "brcm,bt-pcm-int-params",
 				      bdev->pcm_int_params, 5);
@@ -1548,6 +1627,15 @@ static int bcm_serdev_probe(struct serdev_device *serdev)
 		bcmdev->max_autobaud_speed = data->max_autobaud_speed;
 		bcmdev->no_early_set_baudrate = data->no_early_set_baudrate;
 		bcmdev->drive_rts_on_open = data->drive_rts_on_open;
+		bcmdev->wake_before_power_cycle = data->wake_before_power_cycle;
+		bcmdev->set_baudrate_before_patch =
+			data->set_baudrate_before_patch;
+		bcmdev->host_baudrate_multiplier =
+			data->host_baudrate_multiplier;
+		bcmdev->broken_read_transmit_power =
+			data->broken_read_transmit_power;
+		bcmdev->fixup_le_adv_report_evt_type =
+			data->fixup_le_adv_report_evt_type;
 		bcmdev->no_uart_clock_set = data->no_uart_clock_set;
 		if (data->max_speed && bcmdev->oper_speed > data->max_speed)
 			bcmdev->oper_speed = data->max_speed;
@@ -1566,6 +1654,20 @@ static void bcm_serdev_remove(struct serdev_device *serdev)
 #ifdef CONFIG_OF
 static struct bcm_device_data bcm4354_device_data = {
 	.no_early_set_baudrate = true,
+};
+
+static struct bcm_device_data bcm4355_device_data = {
+	.no_early_set_baudrate = true,
+	.drive_rts_on_open = true,
+};
+
+static struct bcm_device_data bcm4355_j172_device_data = {
+	.no_early_set_baudrate = true,
+	.wake_before_power_cycle = true,
+	.set_baudrate_before_patch = true,
+	.host_baudrate_multiplier = 2,
+	.broken_read_transmit_power = true,
+	.fixup_le_adv_report_evt_type = true,
 };
 
 static struct bcm_device_data bcm43438_device_data = {
@@ -1591,6 +1693,9 @@ static const struct of_device_id bcm_bluetooth_of_match[] = {
 	{ .compatible = "brcm,bcm43438-bt", .data = &bcm43438_device_data },
 	{ .compatible = "brcm,bcm4349-bt", .data = &bcm43438_device_data },
 	{ .compatible = "brcm,bcm43540-bt", .data = &bcm4354_device_data },
+	{ .compatible = "apple,j172-bcm4355c1-bt",
+	  .data = &bcm4355_j172_device_data },
+	{ .compatible = "brcm,bcm4355c1-bt", .data = &bcm4355_device_data },
 	{ .compatible = "brcm,bcm4335a0" },
 	{ .compatible = "cypress,cyw4373a0-bt", .data = &cyw4373a0_device_data },
 	{ .compatible = "infineon,cyw55572-bt", .data = &cyw55572_device_data },
