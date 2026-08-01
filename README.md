@@ -1,4 +1,4 @@
-# HoolockLinux for iPad 7
+# HoolockLinux for iPad 7 and iPhone 7
 
 This is an experimental HoolockLinux kernel fork focused on Linux support for
 the seventh-generation iPad using the Apple A10 / T8010 SoC. The currently
