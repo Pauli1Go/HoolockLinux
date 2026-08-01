@@ -11,4 +11,56 @@
 / {
 	compatible = "apple,d111", "apple,t8010", "apple,arm-platform";
 	model = "Apple iPhone 7 Plus (Intel)";
+
+	aliases {
+		touchscreen0 = &touchscreen;
+	};
+};
+
+&i2c0 {
+	status = "okay";
+
+	pmic@27 {
+		compatible = "apple,chestnut-pmic";
+		reg = <0x27>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		touch_hv: regulator-touch-hv {
+			compatible = "apple,chestnut-touch-hv-regulator";
+			regulator-name = "touch-hv";
+		};
+	};
+};
+
+&spi2 {
+	cs-gpios = <&pinctrl_ap 81 GPIO_ACTIVE_LOW>;
+	dmas = <&sio 0x18>;
+	dma-names = "tx";
+	status = "okay";
+
+	touchscreen: touchscreen@0 {
+		compatible = "apple,d111-touchscreen";
+		reg = <0>;
+		spi-max-frequency = <3000000>;
+		spi-cpol;
+		spi-cpha;
+		apple,z2-no-init-ack;
+		interrupts-extended = <&pinctrl_ap 166 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&pinctrl_ap 161 GPIO_ACTIVE_LOW>;
+		hv-supply = <&touch_hv>;
+		core-supply = <&touch_core>;
+		clocks = <&touchclk>;
+		firmware-name = "apple/dfrmtfw-d111-c1f5e-2.bin";
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <1920>;
+	};
+};
+
+&sio {
+	status = "okay";
+};
+
+&touchclk {
+	clock-frequency = <32768>;
 };

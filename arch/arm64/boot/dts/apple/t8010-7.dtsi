@@ -63,6 +63,11 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
+		touch_core: regulator-touch-core {
+			compatible = "apple,adelyn-touch-core-regulator";
+			regulator-name = "touch-core";
+		};
+
 		rtc@500 {
 			compatible = "apple,adelyn-pmic-rtc", "apple,antigua-pmic-rtc";
 			reg = <0x500 0x10>;
