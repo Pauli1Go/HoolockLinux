@@ -18,6 +18,7 @@ properties:
       - apple,j293-touchbar
       - apple,j493-touchbar
       - apple,j172-touchscreen
+      - apple,d111-touchscreen
 
   interrupts:
     maxItems: 1
@@ -30,6 +31,12 @@ properties:
 
   power-ldo-gpios:
     maxItems: 1
+
+  hv-supply:
+    description: High-voltage analog supply for the touchscreen controller
+
+  core-supply:
+    description: Core supply for the touchscreen controller
 
   display-sync-gpios:
     maxItems: 1
@@ -65,6 +72,24 @@ properties:
     description:
       Calibration blob supplied by the bootloader
 
+  apple,z2-orb-gap-cal-blob:
+    $ref: /schemas/types.yaml#/definitions/uint8-array
+    maxItems: 4096
+    description:
+      Orb gap calibration blob supplied by the bootloader
+
+  apple,z2-orb-force-cal-blob:
+    $ref: /schemas/types.yaml#/definitions/uint8-array
+    maxItems: 4096
+    description:
+      Orb force calibration blob supplied by the bootloader
+
+  apple,z2-shape-accel-cal-blob:
+    $ref: /schemas/types.yaml#/definitions/uint8-array
+    maxItems: 4096
+    description:
+      Dynamic shape acceleration calibration blob supplied by the bootloader
+
 required:
   - compatible
   - interrupts
@@ -95,6 +120,18 @@ allOf:
         - spi-cpha
         - spi-cpol
         - apple,z2-bpw16-min-len
+        - apple,z2-no-init-ack
+  - if:
+      properties:
+        compatible:
+          const: apple,d111-touchscreen
+    then:
+      required:
+        - clocks
+        - hv-supply
+        - core-supply
+        - spi-cpha
+        - spi-cpol
         - apple,z2-no-init-ack
 
 unevaluatedProperties: false
