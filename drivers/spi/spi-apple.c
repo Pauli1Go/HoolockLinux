@@ -101,6 +101,7 @@
 #define APPLE_SPI_DELAY_POST		0x168
 
 #define APPLE_SPI_FIFO_DEPTH		16
+#define APPLE_SPI_T8010_DMA_MIN_LEN	(APPLE_SPI_FIFO_DEPTH + 1)
 
 /*
  * The slowest refclock available is 24MHz, the highest divider is 0x7ff,
@@ -396,7 +397,8 @@ static bool apple_spi_t8010_can_dma(struct spi_controller *ctlr,
 		bits_per_word = 8;
 
 	return ctlr->dma_tx && (bits_per_word == 8 || bits_per_word == 16) &&
-	       t->len >= 17 && !(t->len % (bits_per_word / 8)) &&
+	       t->len >= APPLE_SPI_T8010_DMA_MIN_LEN &&
+	       !(t->len % (bits_per_word / 8)) &&
 	       t->tx_buf && !t->rx_buf;
 }
 
