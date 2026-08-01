@@ -133,6 +133,17 @@ config REGULATOR_ADP5055
 	  Say M here if you want to include support for the regulator as a
 	  module.
 
+config REGULATOR_APPLE_PMIC_TOUCH
+	tristate "Apple PMIC touchscreen supply regulators"
+	depends on MFD_SIMPLE_MFD_I2C && OF
+	default y if ARCH_APPLE
+	help
+	  Support the fixed touchscreen core and high-voltage supply switches
+	  provided by Apple Adelyn and Chestnut PMICs on A10 devices. Each
+	  compatible identifies one physical rail and keeps its register layout
+	  inside the driver instead of describing register programming in the
+	  device tree.
+
 config REGULATOR_ANATOP
 	tristate "Freescale i.MX on-chip ANATOP LDO regulators"
 	depends on ARCH_MXC || COMPILE_TEST

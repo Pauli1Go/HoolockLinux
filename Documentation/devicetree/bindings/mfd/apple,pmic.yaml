@@ -17,9 +17,10 @@ description: |
   On A7 - A10X SoCs, they are attached over I2C. On A11 and T2 the
   PMIC is attached via SPMI.
 
-  This binding describes simple MFD - I2C/SPMI device with 16-bit
-  register address and 8-bit values that allows subdevices like RTC,
-  power-off control, backlight and nvmem to be described.
+  This binding describes simple MFD - I2C/SPMI devices with 8-bit values
+  that allow subdevices like RTC, power-off control, backlight, regulators
+  and nvmem to be described. Most I2C PMICs use 16-bit register addresses;
+  Chestnut uses 8-bit register addresses.
 
   See also bindings/nvmem/apple,spmi-nvmem.yaml for a simpler
   binding with only nvmem functions exposed used for newer PMICs.
@@ -45,6 +46,7 @@ properties:
               - apple,agnes-pmic
               - apple,calpe-pmic
           - const: apple,spmi-pmic
+      - const: apple,chestnut-pmic
 
   reg:
     maxItems: 1
@@ -70,6 +72,9 @@ patternProperties:
 
   "^nvmem(@[0-9a-f]+)?$":
     $ref: /schemas/nvmem/apple,pmic-nvmem.yaml
+
+  "^regulator-touch-(core|hv)$":
+    $ref: /schemas/regulator/apple,pmic-touch-regulator.yaml
 
 required:
   - compatible

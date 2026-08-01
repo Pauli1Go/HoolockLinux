@@ -77,6 +77,10 @@ static const struct simple_mfd_data apple_i2c_pmic = {
 	.regmap_config = &regmap_config_16r_8v
 };
 
+static const struct simple_mfd_data apple_chestnut_pmic = {
+	.regmap_config = &regmap_config_8r_8v
+};
+
 static const struct mfd_cell sy7636a_cells[] = {
 	{ .name = "sy7636a-regulator", },
 	{ .name = "sy7636a-temperature", },
@@ -126,6 +130,7 @@ static const struct simple_mfd_data spacemit_p1 = {
 };
 
 static const struct of_device_id simple_mfd_i2c_of_match[] = {
+	{ .compatible = "apple,chestnut-pmic", .data = &apple_chestnut_pmic },
 	{ .compatible = "apple,i2c-pmic", .data = &apple_i2c_pmic },
 	{ .compatible = "delta,tn48m-cpld" },
 	{ .compatible = "fsl,ls1028aqds-fpga" },

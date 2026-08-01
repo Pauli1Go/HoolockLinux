@@ -264,6 +264,18 @@
 			status = "disabled";
 		};
 
+		spi2: spi@20a088000 {
+			compatible = "apple,t8010-spi", "apple,spi";
+			reg = <0x2 0x0a088000 0x0 0x4000>;
+			interrupt-parent = <&aic>;
+			interrupts = <AIC_IRQ 216 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clkref>;
+			power-domains = <&ps_spi2>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
 		spi3: spi@20a08c000 {
 			compatible = "apple,t8010-spi", "apple,spi";
 			reg = <0x2 0x0a08c000 0x0 0x4000>;
