@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/regulator/apple,pmic-touch-regulator.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Apple PMIC touchscreen supply regulators
+
+maintainers:
+  - Paul Praschl <praschlpaul@g-p.at>
+
+description:
+  Fixed touchscreen supply switches provided by the Adelyn and Chestnut
+  PMICs. The compatible identifies both the PMIC and the physical supply;
+  register layout is an implementation detail of the regulator driver.
+
+allOf:
+  - $ref: regulator.yaml#
+
+properties:
+  compatible:
+    enum:
+      - apple,adelyn-touch-core-regulator
+      - apple,chestnut-touch-hv-regulator
+
+required:
+  - compatible
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    regulator-touch-core {
+        compatible = "apple,adelyn-touch-core-regulator";
+        regulator-name = "touch-core";
+    };
+
+...

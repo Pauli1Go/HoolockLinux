@@ -73,6 +73,9 @@ patternProperties:
   "^nvmem(@[0-9a-f]+)?$":
     $ref: /schemas/nvmem/apple,pmic-nvmem.yaml
 
+  "^regulator-touch-(core|hv)$":
+    $ref: /schemas/regulator/apple,pmic-touch-regulator.yaml
+
 required:
   - compatible
   - reg
