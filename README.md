@@ -26,7 +26,7 @@ The current kernel includes:
 - J172 BCM4355C1 Bluetooth through the standard `hci_bcm` and BlueZ stacks.
 
 The tested boot flow uses PongoOS and the patched
-[m1n1-ipad7](https://github.com/Pauli1Go/m1n1-ipad7) loader. It supplies the
+[m1n1](https://github.com/Pauli1Go/m1n1) loader. It supplies the
 NVMe Host Memory Buffer, publishes the private SysCfg region for Linux NVMEM,
 and provides the device-specific Bluetooth address through Device Tree.
 
@@ -92,7 +92,7 @@ A complete tested boot requires:
 
 1. a checkm8/palera1n-compatible boot transport;
 2. PongoOS;
-3. the patched [m1n1-ipad7](https://github.com/Pauli1Go/m1n1-ipad7) loader;
+3. the patched [m1n1](https://github.com/Pauli1Go/m1n1) loader;
 4. the HoolockLinux kernel and J172 Device Tree;
 5. an initramfs containing the required touch, Wi-Fi, and Bluetooth firmware;
 6. the private SysCfg trailer from the same iPad; and
