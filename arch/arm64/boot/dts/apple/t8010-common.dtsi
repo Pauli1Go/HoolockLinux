@@ -14,6 +14,7 @@
 		ausbphy0 = &ausbphy0; /* Used by loader */
 		nvme-hmb = &nvme_hmb; /* Used by loader */
 		serial0 = &serial0;
+		serial1 = &serial1;
 		serial3 = &serial3;
 		serial5 = &serial5;
 	};
