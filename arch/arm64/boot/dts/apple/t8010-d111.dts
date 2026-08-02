@@ -14,12 +14,54 @@
 
 	aliases {
 		touchscreen0 = &touchscreen;
+		wifi0 = &wifi0;
 	};
 
 	d111_battery: battery {
 		compatible = "simple-battery";
 		constant-charge-current-max-microamp = <1950000>;
 	};
+
+	wlan_vdd: regulator-wlan-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "wlan-vdd";
+		gpio = <&pmu_gpio 10 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		off-on-delay-us = <2500>;
+	};
+};
+
+&pcie0 {
+	iommu-map = <0x100 &pcie0_dart0 0 1>,
+		    <0x200 &pcie0_dart2 0 1>;
+	pinctrl-0 = <&wifi_clkreq>;
+	pinctrl-names = "default";
+
+	pci@2,0 {
+		device_type = "pci";
+		reg = <0x1000 0x0 0x0 0x0 0x0>;
+		bus-range = <2 2>;
+		max-link-speed = <1>;
+		apple,manual-availability-iommu = <&pcie0_dart2 0>;
+		reset-gpios = <&pinctrl_ap 14 GPIO_ACTIVE_LOW>;
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+
+		wifi0: wifi@0,0 {
+			compatible = "apple,d111-bcm4355-wifi",
+				     "pci14e4,43dc";
+			reg = <0x20000 0x0 0x0 0x0 0x0>;
+			device-wake-gpios = <&pinctrl_ap 88 GPIO_ACTIVE_HIGH>;
+			vdd-supply = <&wlan_vdd>;
+			apple,antenna-sku = "XX";
+		};
+	};
+};
+
+&pcie0_dart2 {
+	status = "okay";
 };
 
 &i2c0 {
@@ -61,6 +103,10 @@
 &pinctrl_ap {
 	battery_swi_pins: battery-swi-pins {
 		pinmux = <APPLE_PINMUX(173, 1)>;
+	};
+
+	wifi_clkreq: wifi-clkreq-pins {
+		pinmux = <APPLE_PINMUX(18, 1)>;
 	};
 };
 
