@@ -15,6 +15,11 @@
 	aliases {
 		touchscreen0 = &touchscreen;
 	};
+
+	d111_battery: battery {
+		compatible = "simple-battery";
+		constant-charge-current-max-microamp = <1950000>;
+	};
 };
 
 &i2c0 {
@@ -29,6 +34,49 @@
 		touch_hv: regulator-touch-hv {
 			compatible = "apple,chestnut-touch-hv-regulator";
 			regulator-name = "touch-hv";
+		};
+	};
+};
+
+&i2c1 {
+	charger@75 {
+		compatible = "apple,sn2400";
+		reg = <0x75>;
+
+		sn2400_charger: charger {
+			compatible = "apple,sn2400-charger";
+			monitored-battery = <&d111_battery>;
+			input-current-limit-microamp = <2000000>;
+			mux-states = <&hdq_mux 0>;
+			mux-state-names = "hdq";
+		};
+
+		hdq_mux: hdq-mux {
+			compatible = "apple,sn2400-hdq-mux";
+			#mux-state-cells = <1>;
+		};
+	};
+};
+
+&pinctrl_ap {
+	battery_swi_pins: battery-swi-pins {
+		pinmux = <APPLE_PINMUX(173, 1)>;
+	};
+};
+
+&serial5 {
+	pinctrl-0 = <&battery_swi_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	onewire {
+		compatible = "ti,hdq-uart";
+		mux-states = <&hdq_mux 1>;
+		mux-state-names = "hdq";
+
+		fuel-gauge {
+			compatible = "apple,d111-bq27545", "ti,bq27545-hdq";
+			monitored-battery = <&d111_battery>;
 		};
 	};
 };

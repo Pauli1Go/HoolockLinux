@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/mfd/apple,sn2400.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Apple SN2400 battery charger
+
+maintainers:
+  - Paul Praschl <praschlpaul@g-p.at>
+
+description:
+  The SN2400, also known as Tigris, is an I2C battery charger used in Apple
+  mobile devices. It also arbitrates access to the battery gauge HDQ line.
+
+properties:
+  compatible:
+    const: apple,sn2400
+
+  reg:
+    maxItems: 1
+
+  hdq-mux:
+    type: object
+    $ref: /schemas/mux/apple,sn2400-hdq-mux.yaml#
+    unevaluatedProperties: false
+
+  charger:
+    type: object
+    $ref: /schemas/power/supply/apple,sn2400-charger.yaml#
+    unevaluatedProperties: false
+
+required:
+  - compatible
+  - reg
+  - hdq-mux
+
+additionalProperties: false
+
+examples:
+  - |
+    battery_info: battery {
+        compatible = "simple-battery";
+    };
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        charger@75 {
+            compatible = "apple,sn2400";
+            reg = <0x75>;
+
+            hdq_mux: hdq-mux {
+                compatible = "apple,sn2400-hdq-mux";
+                #mux-state-cells = <1>;
+            };
+
+            charger {
+                compatible = "apple,sn2400-charger";
+                monitored-battery = <&battery_info>;
+                input-current-limit-microamp = <2000000>;
+                mux-states = <&hdq_mux 0>;
+                mux-state-names = "hdq";
+            };
+        };
+    };

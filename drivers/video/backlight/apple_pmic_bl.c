@@ -65,6 +65,8 @@ static int apple_pmic_bl_get_brightness(struct backlight_device *bl)
 		case PMIC_TYPE_ARIA:
 			return ((cmd[1] & 7) << 8) | (cmd[0] & 0xff);
 	}
+
+	return -EINVAL;
 }
 
 static const struct backlight_ops apple_pmic_bl_ops = {

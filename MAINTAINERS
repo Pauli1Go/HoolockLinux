@@ -2704,6 +2704,17 @@ F:	Documentation/devicetree/bindings/input/touchscreen/apple,z2-multitouch.yaml
 F:	arch/arm64/boot/dts/apple/t8010-ipad7.dtsi
 F:	drivers/input/touchscreen/apple_z2.c
 
+APPLE SN2400 CHARGER AND HDQ MULTIPLEXER DRIVERS
+M:	Paul Praschl <praschlpaul@g-p.at>
+L:	asahi@lists.linux.dev
+L:	linux-pm@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/mfd/apple,sn2400.yaml
+F:	Documentation/devicetree/bindings/mux/apple,sn2400-hdq-mux.yaml
+F:	Documentation/devicetree/bindings/power/supply/apple,sn2400-charger.yaml
+F:	drivers/mux/sn2400.c
+F:	drivers/power/supply/apple_sn2400_charger.c
+
 APPLE T8010 SPI SUPPORT
 M:	Paul Praschl <praschlpaul@g-p.at>
 L:	asahi@lists.linux.dev

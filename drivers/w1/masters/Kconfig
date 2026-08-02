@@ -81,6 +81,7 @@ config W1_MASTER_SGI
 config W1_MASTER_UART
 	tristate "UART 1-wire and HDQ driver"
 	depends on SERIAL_DEV_BUS
+	select MUX_CORE
 	help
 	  Say Y here if you want to communicate with your 1-wire or HDQ devices
 	  using a UART interface.

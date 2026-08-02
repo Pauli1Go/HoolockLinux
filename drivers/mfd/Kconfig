@@ -1472,6 +1472,17 @@ config MFD_SI476X_CORE
 	  To compile this driver as a module, choose M here: the
 	  module will be called si476x-core.
 
+config MFD_SN2400
+	tristate "Apple SN2400 battery charger core"
+	depends on I2C
+	select MFD_SIMPLE_MFD_I2C
+	help
+	  Support the I2C register map and child devices of the Apple SN2400
+	  battery charger through the simple MFD I2C driver. Charging policy is
+	  implemented by separate child drivers.
+
+	  To compile the simple MFD I2C driver as a module, choose M here.
+
 config MFD_SIMPLE_MFD_I2C
 	tristate
 	depends on I2C

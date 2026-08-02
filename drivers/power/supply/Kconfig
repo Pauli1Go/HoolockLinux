@@ -334,6 +334,17 @@ config BATTERY_BQ27XXX_HDQ
 	  Say Y here to enable support for batteries with BQ27xxx chips
 	  connected over an HDQ bus.
 
+config CHARGER_APPLE_SN2400
+	tristate "Apple SN2400 USB charger"
+	depends on MUX_SN2400
+	help
+	  Say Y here to enable charging and USB input-current foldback for the
+	  Apple SN2400 charger used in devices such as the iPhone 7.
+
+	  The driver starts at a conservative input current and raises the limit
+	  in small steps while monitoring VBUS droop. Battery telemetry remains
+	  the responsibility of a separate fuel-gauge driver.
+
 config APPLE_BELLATRIX_POWER
 	tristate "Apple Bellatrix USB power status"
 	depends on I2C

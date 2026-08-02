@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/mux/apple,sn2400-hdq-mux.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Apple SN2400 HDQ multiplexer
+
+maintainers:
+  - Paul Praschl <praschlpaul@g-p.at>
+
+description: |
+  The SN2400 arbitrates access to the battery gauge HDQ line between its
+  internal charging logic and the application processor. State 0 routes HDQ
+  to the charger and state 1 routes it to the application processor.
+
+allOf:
+  - $ref: mux-controller.yaml#
+
+properties:
+  compatible:
+    const: apple,sn2400-hdq-mux
+
+  '#mux-state-cells':
+    const: 1
+
+required:
+  - compatible
+  - '#mux-state-cells'
+
+additionalProperties: false

@@ -70,6 +70,17 @@ config MUX_MMIO
 	  To compile the driver as a module, choose M here: the module will
 	  be called mux-mmio.
 
+config MUX_SN2400
+	tristate "Apple SN2400 HDQ multiplexer"
+	depends on MFD_SN2400
+	help
+	  Select the HDQ line owner in the Apple SN2400 battery charger used
+	  in devices such as the iPhone 7. This driver only controls HDQ
+	  routing and does not configure battery charging.
+
+	  To compile the driver as a module, choose M here: the module will
+	  be called mux-sn2400.
+
 endmenu
 
 endif # MULTIPLEXER

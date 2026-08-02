@@ -76,6 +76,11 @@ struct bq27xxx_device_info {
 	struct bq27xxx_reg_cache cache;
 	/* Serve properties only from the periodically populated register cache. */
 	bool cache_only;
+	/* Optional transport-specific subset for cache-only operation. */
+	const enum power_supply_property *cache_properties;
+	size_t num_cache_properties;
+	/* Use RemainingCapacity rather than NominalAvailableCapacity. */
+	bool cache_use_remaining_capacity;
 	/* Optional periodic refresh interval for cache-only transports. */
 	unsigned int cache_refresh_ms;
 	int charge_design_full;
