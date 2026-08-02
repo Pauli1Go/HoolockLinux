@@ -807,6 +807,18 @@ static const enum power_supply_property bq27545_cache_props[] = {
 	POWER_SUPPLY_PROP_MANUFACTURER,
 };
 
+static bool bq27xxx_cache_has_prop(const struct bq27xxx_device_info *di,
+				   enum power_supply_property property)
+{
+	size_t i;
+
+	for (i = 0; i < di->num_cache_properties; i++)
+		if (di->cache_properties[i] == property)
+			return true;
+
+	return false;
+}
+
 static enum power_supply_property bq27421_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_PRESENT,
@@ -1655,6 +1667,15 @@ static inline int bq27xxx_battery_read_rc(struct bq27xxx_device_info *di,
 	return bq27xxx_battery_read_charge(di, BQ27XXX_REG_RC, val);
 }
 
+static int bq27xxx_battery_read_charge_now(struct bq27xxx_device_info *di,
+					   union power_supply_propval *val)
+{
+	if (di->cache_use_remaining_capacity)
+		return bq27xxx_battery_read_rc(di, val);
+
+	return bq27xxx_battery_read_nac(di, val);
+}
+
 /*
  * Return the battery Full Charge Capacity in µAh
  * Or < 0 if something fails.
@@ -1973,12 +1994,23 @@ static void bq27xxx_battery_update_unlocked(struct bq27xxx_device_info *di)
 	union power_supply_propval status = di->last_status;
 	union power_supply_propval value;
 	struct bq27xxx_reg_cache cache = {};
+	bool has_charge_full = false;
+	bool has_charge_now = false;
+	bool has_cycle_count = false;
+	bool has_power_avg = false;
+	bool has_tte = false;
 	bool single_flags = di->opts & BQ27XXX_O_ZERO;
 	bool changed;
 	int ret;
 
-	if (di->cache_only)
+	if (di->cache_only) {
 		bq27xxx_battery_init_cache(&cache);
+		has_charge_full = bq27xxx_cache_has_prop(di, POWER_SUPPLY_PROP_CHARGE_FULL);
+		has_charge_now = bq27xxx_cache_has_prop(di, POWER_SUPPLY_PROP_CHARGE_NOW);
+		has_cycle_count = bq27xxx_cache_has_prop(di, POWER_SUPPLY_PROP_CYCLE_COUNT);
+		has_power_avg = bq27xxx_cache_has_prop(di, POWER_SUPPLY_PROP_POWER_AVG);
+		has_tte = bq27xxx_cache_has_prop(di, POWER_SUPPLY_PROP_TIME_TO_EMPTY_NOW);
+	}
 
 	cache.flags = bq27xxx_read(di, BQ27XXX_REG_FLAGS, single_flags);
 	if (di->chip == BQ27000 && (cache.flags & 0xff) == 0xff)
@@ -2007,7 +2039,7 @@ static void bq27xxx_battery_update_unlocked(struct bq27xxx_device_info *di)
 					bq27xxx_cache_value(&cache.temperature, ret, &value);
 				}
 
-				if (!ret) {
+				if (!ret && has_tte) {
 					ret = bq27xxx_battery_read_time(di, BQ27XXX_REG_TTE,
 									&value);
 					bq27xxx_cache_value(&cache.time_to_empty_now,
@@ -2017,22 +2049,22 @@ static void bq27xxx_battery_update_unlocked(struct bq27xxx_device_info *di)
 				if (ret == -ENODATA)
 					ret = 0;
 
-				if (!ret) {
-					ret = bq27xxx_battery_read_nac(di, &value);
+				if (!ret && has_charge_now) {
+					ret = bq27xxx_battery_read_charge_now(di, &value);
 					bq27xxx_cache_value(&cache.charge_now, ret, &value);
 				}
 
-				if (!ret) {
+				if (!ret && has_charge_full) {
 					ret = bq27xxx_battery_read_fcc(di, &value);
 					bq27xxx_cache_value(&cache.charge_full, ret, &value);
 				}
 
-				if (!ret) {
+				if (!ret && has_cycle_count) {
 					ret = bq27xxx_battery_read_cyct(di, &value);
 					bq27xxx_cache_value(&cache.cycle_count, ret, &value);
 				}
 
-				if (!ret) {
+				if (!ret && has_power_avg) {
 					ret = bq27xxx_battery_pwr_avg(di, &value);
 					bq27xxx_cache_value(&cache.power_avg, ret, &value);
 				}
@@ -2046,9 +2078,12 @@ static void bq27xxx_battery_update_unlocked(struct bq27xxx_device_info *di)
 	if (changed)
 		di->cache = cache;
 
-	if (changed || di->last_status.intval != status.intval) {
+	if (di->bat &&
+	    (changed || di->last_status.intval != status.intval)) {
 		di->last_status.intval = status.intval;
 		power_supply_changed(di->bat);
+	} else {
+		di->last_status.intval = status.intval;
 	}
 
 	di->last_update = jiffies;
@@ -2116,20 +2151,30 @@ static void bq27xxx_battery_refresh_cache(struct bq27xxx_device_info *di)
 		goto out_error;
 	bq27xxx_cache_value(&cache.temperature, 0, &temperature);
 
-	ret = bq27xxx_battery_read_time(di, BQ27XXX_REG_TTE, &value);
-	bq27xxx_cache_value(&cache.time_to_empty_now, ret, &value);
+	if (bq27xxx_cache_has_prop(di, POWER_SUPPLY_PROP_TIME_TO_EMPTY_NOW)) {
+		ret = bq27xxx_battery_read_time(di, BQ27XXX_REG_TTE, &value);
+		bq27xxx_cache_value(&cache.time_to_empty_now, ret, &value);
+	}
 
-	ret = bq27xxx_battery_read_nac(di, &value);
-	bq27xxx_cache_value(&cache.charge_now, ret, &value);
+	if (bq27xxx_cache_has_prop(di, POWER_SUPPLY_PROP_CHARGE_NOW)) {
+		ret = bq27xxx_battery_read_charge_now(di, &value);
+		bq27xxx_cache_value(&cache.charge_now, ret, &value);
+	}
 
-	ret = bq27xxx_battery_read_fcc(di, &value);
-	bq27xxx_cache_value(&cache.charge_full, ret, &value);
+	if (bq27xxx_cache_has_prop(di, POWER_SUPPLY_PROP_CHARGE_FULL)) {
+		ret = bq27xxx_battery_read_fcc(di, &value);
+		bq27xxx_cache_value(&cache.charge_full, ret, &value);
+	}
 
-	ret = bq27xxx_battery_read_cyct(di, &value);
-	bq27xxx_cache_value(&cache.cycle_count, ret, &value);
+	if (bq27xxx_cache_has_prop(di, POWER_SUPPLY_PROP_CYCLE_COUNT)) {
+		ret = bq27xxx_battery_read_cyct(di, &value);
+		bq27xxx_cache_value(&cache.cycle_count, ret, &value);
+	}
 
-	ret = bq27xxx_battery_pwr_avg(di, &value);
-	bq27xxx_cache_value(&cache.power_avg, ret, &value);
+	if (bq27xxx_cache_has_prop(di, POWER_SUPPLY_PROP_POWER_AVG)) {
+		ret = bq27xxx_battery_pwr_avg(di, &value);
+		bq27xxx_cache_value(&cache.power_avg, ret, &value);
+	}
 
 	changed = memcmp(&di->cache, &cache, sizeof(cache)) != 0;
 	di->cache = cache;
@@ -2157,35 +2202,9 @@ out_error:
 
 out_unlock:
 	if (!di->removed && di->cache_refresh_ms)
-		schedule_delayed_work(&di->work,
-				      msecs_to_jiffies(di->cache_refresh_ms));
+		queue_delayed_work(system_freezable_wq, &di->work,
+				   msecs_to_jiffies(di->cache_refresh_ms));
 	mutex_unlock(&di->lock);
-}
-
-static int bq27xxx_battery_cache_error(struct bq27xxx_device_info *di)
-{
-	if (di->cache.flags < 0)
-		return di->cache.flags;
-	if (di->cache.capacity < 0)
-		return di->cache.capacity;
-	if (di->cache.current_now.error)
-		return di->cache.current_now.error;
-	if (di->cache.status.error)
-		return di->cache.status.error;
-	if (di->cache.voltage.error)
-		return di->cache.voltage.error;
-	if (di->cache.temperature.error)
-		return di->cache.temperature.error;
-	if (di->cache.charge_now.error)
-		return di->cache.charge_now.error;
-	if (di->cache.charge_full.error)
-		return di->cache.charge_full.error;
-	if (di->cache.cycle_count.error)
-		return di->cache.cycle_count.error;
-	if (di->cache.power_avg.error)
-		return di->cache.power_avg.error;
-
-	return 0;
 }
 
 static void bq27xxx_battery_poll(struct work_struct *work)
@@ -2559,7 +2578,6 @@ int bq27xxx_battery_setup(struct bq27xxx_device_info *di)
 		.drv_data = di,
 		.no_wakeup_source = true,
 	};
-	unsigned long refresh_delay;
 	int ret;
 
 	INIT_DELAYED_WORK(&di->work, bq27xxx_battery_poll);
@@ -2575,6 +2593,12 @@ int bq27xxx_battery_setup(struct bq27xxx_device_info *di)
 	if (di->cache_only && di->chip != BQ27545)
 		return dev_err_probe(di->dev, -EINVAL,
 				     "cache-only mode only supports BQ27545\n");
+	if (di->cache_only && !di->cache_properties) {
+		di->cache_properties = bq27545_cache_props;
+		di->num_cache_properties = ARRAY_SIZE(bq27545_cache_props);
+	}
+	if (di->cache_only)
+		bq27xxx_battery_init_cache(&di->cache);
 
 	psy_desc = devm_kzalloc(di->dev, sizeof(*psy_desc), GFP_KERNEL);
 	if (!psy_desc)
@@ -2583,8 +2607,8 @@ int bq27xxx_battery_setup(struct bq27xxx_device_info *di)
 	psy_desc->name = di->name;
 	psy_desc->type = POWER_SUPPLY_TYPE_BATTERY;
 	if (di->cache_only) {
-		psy_desc->properties = bq27545_cache_props;
-		psy_desc->num_properties = ARRAY_SIZE(bq27545_cache_props);
+		psy_desc->properties = di->cache_properties;
+		psy_desc->num_properties = di->num_cache_properties;
 	} else {
 		psy_desc->properties = bq27xxx_chip_data[di->chip].props;
 		psy_desc->num_properties = bq27xxx_chip_data[di->chip].props_size;
@@ -2593,22 +2617,14 @@ int bq27xxx_battery_setup(struct bq27xxx_device_info *di)
 	if (!di->cache_only)
 		psy_desc->external_power_changed = bq27xxx_external_power_changed;
 
-	if (di->cache_only)
-		bq27xxx_battery_init_cache(&di->cache);
-
 	di->bat = devm_power_supply_register(di->dev, psy_desc, &psy_cfg);
 	if (IS_ERR(di->bat))
 		return dev_err_probe(di->dev, PTR_ERR(di->bat),
 				     "failed to register battery\n");
 
-	if (!di->cache_only)
+	if (!di->cache_only) {
 		bq27xxx_battery_settings(di);
-	bq27xxx_battery_update(di);
-	if (di->cache_only) {
-		ret = bq27xxx_battery_cache_error(di);
-		if (ret)
-			return dev_err_probe(di->dev, ret,
-					     "failed to populate initial battery cache\n");
+		bq27xxx_battery_update(di);
 	}
 
 	mutex_lock(&bq27xxx_list_lock);
@@ -2616,8 +2632,8 @@ int bq27xxx_battery_setup(struct bq27xxx_device_info *di)
 	mutex_unlock(&bq27xxx_list_lock);
 
 	if (di->cache_only && di->cache_refresh_ms) {
-		refresh_delay = msecs_to_jiffies(di->cache_refresh_ms);
-		schedule_delayed_work(&di->work, refresh_delay);
+		/* Populate asynchronously so a transient HDQ error can recover. */
+		queue_delayed_work(system_freezable_wq, &di->work, 0);
 	}
 
 	return 0;
@@ -2652,7 +2668,9 @@ static int bq27xxx_battery_resume(struct device *dev)
 {
 	struct bq27xxx_device_info *di = dev_get_drvdata(dev);
 
-	if (!di->cache_only || di->cache_refresh_ms)
+	if (di->cache_only && di->cache_refresh_ms)
+		queue_delayed_work(system_freezable_wq, &di->work, 0);
+	else if (!di->cache_only)
 		schedule_delayed_work(&di->work, 0);
 	return 0;
 }
