@@ -35,6 +35,12 @@ static const struct regmap_config regmap_config_8r_8v = {
 	.val_bits = 8,
 };
 
+static const struct regmap_config apple_sn2400_regmap_config = {
+	.reg_bits = 8,
+	.val_bits = 8,
+	.max_register = 0x1d,
+};
+
 static const struct regmap_config regmap_config_16r_8v = {
 	.reg_bits = 16,
 	.val_bits = 8,
@@ -79,6 +85,10 @@ static const struct simple_mfd_data apple_i2c_pmic = {
 
 static const struct simple_mfd_data apple_chestnut_pmic = {
 	.regmap_config = &regmap_config_8r_8v
+};
+
+static const struct simple_mfd_data apple_sn2400 = {
+	.regmap_config = &apple_sn2400_regmap_config,
 };
 
 static const struct mfd_cell sy7636a_cells[] = {
@@ -132,6 +142,7 @@ static const struct simple_mfd_data spacemit_p1 = {
 static const struct of_device_id simple_mfd_i2c_of_match[] = {
 	{ .compatible = "apple,chestnut-pmic", .data = &apple_chestnut_pmic },
 	{ .compatible = "apple,i2c-pmic", .data = &apple_i2c_pmic },
+	{ .compatible = "apple,sn2400", .data = &apple_sn2400 },
 	{ .compatible = "delta,tn48m-cpld" },
 	{ .compatible = "fsl,ls1028aqds-fpga" },
 	{ .compatible = "fsl,lx2160aqds-fpga" },
