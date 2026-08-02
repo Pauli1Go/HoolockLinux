@@ -11,7 +11,7 @@
 | Debian graphical desktop | Working | Working |
 | Touchscreen | Working, including multi-touch | Working, including multi-touch |
 | Battery and charging status | Working | Working |
-| Wi-Fi | Working, including station and AP modes | Not yet implemented |
+| Wi-Fi | Working, including station and AP modes | Working in station mode; AP mode not working |
 | Bluetooth | Working; RF calibration remains open | Not yet implemented |
 | Integrated Speakers | Not yet implemented | Not yet implemented |
 | Auto Brightness | Not yet implemented | Not yet implemented |
@@ -92,8 +92,9 @@ performance must therefore not yet be considered fully calibrated.
 
 The tested iPhone 7 Plus boots Debian from internal NVMe storage and reaches a
 graphical desktop. Internal storage, the D111 touchscreen, battery telemetry,
-and charging are operational. Wi-Fi, Bluetooth, audio, cameras, sensors, and
-cellular hardware are not part of the currently validated iPhone support.
+charging, and Wi-Fi station mode are operational. Bluetooth, audio, cameras,
+sensors, and cellular hardware are not part of the currently validated iPhone
+support.
 
 The iPhone 7 Plus support includes:
 
@@ -104,7 +105,11 @@ The iPhone 7 Plus support includes:
 - regulator-managed Adelyn core and Chestnut high-voltage touch supplies;
 - D111 Apple Z2 firmware and runtime protocol support;
 - transfer of four device-specific touch calibrations by m1n1;
-- cached BQ27545 battery telemetry over the muxed UART/HDQ path; and
+- cached BQ27545 battery telemetry over the muxed UART/HDQ path;
+- D2333 PMIC GPIO and board-specific BCM4355C1 power sequencing;
+- BCM4355C1 Wi-Fi through the standard `brcmfmac` PCIe stack;
+- runtime Apple SysCfg/NVMEM delivery of the device MAC address and Wi-Fi
+  calibration; and
 - automatic SN2400 charging with input-current ramping and VBUS foldback.
 
 ### Touch
@@ -147,12 +152,31 @@ cached battery-status updates, and controlled charger unbind/rebind were also
 validated. The actual charge rate remains dependent on the connected cable and
 power source.
 
+### Wi-Fi
+
+The D111 BCM4355C1 controller is exposed as a normal Linux Wi-Fi interface
+through PCIe port 2 and the standard `brcmfmac` stack. The D2333 PMIC GPIO
+controller, WLAN regulator, PCI power control, and T8010 DART2 provide the
+board-specific power and DMA paths without userspace sequencing or a manual
+driver rebind.
+
+Firmware, CLM, TxCap, MAC address, and the private per-device WCAL calibration
+are loaded automatically through the standard firmware and Apple SysCfg/NVMEM
+paths. NetworkManager, `nmcli`, and `wpa_supplicant` work without
+driver-specific userspace changes.
+
+Station mode, passive scanning, WPA2, DHCP, local network access, and sustained
+data transfer have been validated on the tested iPhone 7 Plus. Access point
+mode is not working: the AP can become visible, but clients cannot complete a
+connection. AP mode must therefore not be considered supported.
+
 ### Remaining hardware
 
-The iPad 7 Wi-Fi and Bluetooth integrations must not be assumed to apply
-directly to the iPhone. The iPhone board topology, GPIOs, firmware,
-calibration, power sequencing, and Device Tree descriptions still need to be
-implemented and validated separately for each remaining subsystem.
+The iPad 7 Bluetooth integration must not be assumed to apply directly to the
+iPhone. Bluetooth, audio, cameras, sensors, cellular hardware, and other
+remaining subsystems still require their own iPhone-specific board topology,
+GPIO, firmware, calibration, power-sequencing, Device Tree, and hardware
+validation work.
 
 ## Firmware and calibration
 
@@ -203,8 +227,10 @@ Both devices use the same high-level boot flow:
 ### iPhone 7 Plus requirements
 
 - the D111 Device Tree;
-- D111 touch firmware in the initramfs;
-- all four touch calibrations from the same iPhone, supplied through m1n1; and
+- D111 touch and Wi-Fi firmware in the initramfs;
+- all four touch calibrations from the same iPhone, supplied through m1n1;
+- the private SysCfg data from the same iPhone for Wi-Fi identity and
+  calibration; and
 - a prepared Linux root filesystem on the iPhone's Linux partition.
 
 This remains an experimental bring-up project. Back up important data and
