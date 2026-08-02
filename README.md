@@ -12,7 +12,7 @@
 | Touchscreen | Working, including multi-touch | Working, including multi-touch |
 | Battery and charging status | Working | Working |
 | Wi-Fi | Working, including station and AP modes | Working in station mode; AP mode not working |
-| Bluetooth | Working; RF calibration remains open | Not yet implemented |
+| Bluetooth | Working; RF calibration remains open | Working; RF calibration remains open |
 | Integrated Speakers | Not yet implemented | Not yet implemented |
 | Auto Brightness | Not yet implemented | Not yet implemented |
 | Auto Rotation | Not yet implemented | Not yet implemented |
@@ -92,9 +92,10 @@ performance must therefore not yet be considered fully calibrated.
 
 The tested iPhone 7 Plus boots Debian from internal NVMe storage and reaches a
 graphical desktop. Internal storage, the D111 touchscreen, battery telemetry,
-charging, and Wi-Fi station mode are operational. Bluetooth, audio, cameras,
-sensors, and cellular hardware are not part of the currently validated iPhone
-support.
+charging, Wi-Fi station mode, and Bluetooth are operational. Discovery,
+pairing, reconnect, and A2DP audio work through the standard BlueZ userspace
+stack. Integrated speakers, cameras, sensors, and cellular hardware are not
+part of the currently validated iPhone support.
 
 The iPhone 7 Plus support includes:
 
@@ -109,7 +110,9 @@ The iPhone 7 Plus support includes:
 - D2333 PMIC GPIO and board-specific BCM4355C1 power sequencing;
 - BCM4355C1 Wi-Fi through the standard `brcmfmac` PCIe stack;
 - runtime Apple SysCfg/NVMEM delivery of the device MAC address and Wi-Fi
-  calibration; and
+  calibration;
+- T8010 UART1 and D111 BCM4355C0 Bluetooth through the standard `hci_bcm` and
+  BlueZ stacks; and
 - automatic SN2400 charging with input-current ramping and VBUS foldback.
 
 ### Touch
@@ -170,13 +173,27 @@ data transfer have been validated on the tested iPhone 7 Plus. Access point
 mode is not working: the AP can become visible, but clients cannot complete a
 connection. AP mode must therefore not be considered supported.
 
-### Remaining hardware
+### Bluetooth
 
-The iPad 7 Bluetooth integration must not be assumed to apply directly to the
-iPhone. Bluetooth, audio, cameras, sensors, cellular hardware, and other
-remaining subsystems still require their own iPhone-specific board topology,
-GPIO, firmware, calibration, power-sequencing, Device Tree, and hardware
-validation work.
+Bluetooth uses the BCM4355C0 controller in the D111 Wi-Fi combination module
+through T8010 UART1. Device Tree describes the controller with the specific
+`brcm,bcm4355c0-bt` compatible and the proven `brcm,bcm4345c5` fallback. The
+kernel controls the D111 regulator-on and device-wake GPIOs, uses hardware
+RTS/CTS, starts the ROM transport at 115200 baud, and switches it to 1.5 Mbit/s
+through the normal Broadcom Serdev lifecycle.
+
+The selected Murata firmware is loaded automatically from
+`brcm/BCM.apple,d111.hcd` through the standard Linux firmware API. After
+Patchram, the controller identifies as `BCM4355C0 Olaf MUR MCC`, firmware build
+1324. The generic `btbcm` path rejects the controller's shared factory default
+address so that the device-specific address supplied through m1n1 can be used;
+the private address is not stored in the kernel tree or documentation.
+
+The controller appears as a normal BlueZ HCI device. Cold-boot initialization,
+discovery, pairing, reconnect, and A2DP audio have been validated on the tested
+iPhone 7 Plus using AirPods. The validated run completed without HCI command
+timeouts, resets, or RX/TX errors, while Wi-Fi, NetworkManager, SSH, and the
+internal ext4 root filesystem remained operational.
 
 ## Firmware and calibration
 
@@ -227,10 +244,11 @@ Both devices use the same high-level boot flow:
 ### iPhone 7 Plus requirements
 
 - the D111 Device Tree;
-- D111 touch and Wi-Fi firmware in the initramfs;
+- D111 touch, Wi-Fi, and Bluetooth firmware in the initramfs;
 - all four touch calibrations from the same iPhone, supplied through m1n1;
 - the private SysCfg data from the same iPhone for Wi-Fi identity and
-  calibration; and
+  calibration, together with the device-specific Bluetooth identity supplied
+  through m1n1; and
 - a prepared Linux root filesystem on the iPhone's Linux partition.
 
 This remains an experimental bring-up project. Back up important data and
