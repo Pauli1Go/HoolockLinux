@@ -13,13 +13,19 @@ description: |
   The BQ27545 is a single-cell fuel gauge which can communicate using the
   Texas Instruments single-wire HDQ protocol. An HDQ device has no 1-Wire
   ROM address, so it is represented as the single child of an HDQ bus.
+  D111 devices use Apple-specific gauge firmware whose charge-remaining
+  register set differs from the generic BQ27545 profile.
 
 allOf:
   - $ref: power-supply.yaml#
 
 properties:
   compatible:
-    const: ti,bq27545-hdq
+    oneOf:
+      - const: ti,bq27545-hdq
+      - items:
+          - const: apple,d111-bq27545
+          - const: ti,bq27545-hdq
 
   power-supplies:
     maxItems: 1
