@@ -12,6 +12,10 @@
 / {
 	chassis-type = "handset";
 
+	aliases {
+		bluetooth0 = &bluetooth;
+	};
+
 	gpio-keys {
 		compatible = "gpio-keys";
 
@@ -72,7 +76,7 @@
 			compatible = "apple,d2333-pmic-gpio";
 			gpio-controller;
 			#gpio-cells = <2>;
-			gpio-reserved-ranges = <0 10>, <11 10>;
+			gpio-reserved-ranges = <0 8>, <9 1>, <12 9>;
 		};
 
 		rtc@500 {
@@ -96,5 +100,29 @@
 				};
 			};
 		};
+	};
+};
+
+&pinctrl_ap {
+	bluetooth_uart1_pins: bluetooth-uart1-pins {
+		pinmux = <APPLE_PINMUX(96, 1)>,
+			 <APPLE_PINMUX(97, 1)>,
+			 <APPLE_PINMUX(98, 1)>,
+			 <APPLE_PINMUX(99, 1)>;
+	};
+};
+
+&serial1 {
+	pinctrl-0 = <&bluetooth_uart1_pins>;
+	pinctrl-names = "default";
+	uart-has-rtscts;
+	status = "okay";
+
+	bluetooth: bluetooth {
+		compatible = "brcm,bcm4355c0-bt", "brcm,bcm4345c5";
+		current-speed = <115200>;
+		max-speed = <1500000>;
+		shutdown-gpios = <&pmu_gpio 8 GPIO_ACTIVE_HIGH>;
+		device-wakeup-gpios = <&pinctrl_ap 87 GPIO_ACTIVE_HIGH>;
 	};
 };
