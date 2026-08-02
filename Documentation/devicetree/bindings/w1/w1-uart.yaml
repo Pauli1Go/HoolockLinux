@@ -51,6 +51,16 @@ properties:
     description:
       The baud rate for the 1-Wire write-1 and read cycle.
 
+  mux-states:
+    maxItems: 1
+    description:
+      Optional mux state which routes the HDQ line to the UART. The state is
+      selected for each HDQ transaction and deselected afterwards.
+
+  mux-state-names:
+    items:
+      - const: hdq
+
 required:
   - compatible
 
@@ -69,6 +79,8 @@ examples:
     serial {
         onewire {
             compatible = "ti,hdq-uart";
+            mux-states = <&hdq_mux 1>;
+            mux-state-names = "hdq";
 
             fuel-gauge {
                 compatible = "ti,bq27545-hdq";
