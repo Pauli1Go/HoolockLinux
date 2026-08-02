@@ -15,11 +15,56 @@
 #include <linux/platform_device.h>
 #include <linux/regulator/consumer.h>
 
+struct apple_wifi_pwrctrl_data {
+	bool device_wake_before_vdd;
+	unsigned int step_delay_min_us;
+	unsigned int step_delay_max_us;
+	unsigned int stabilization_delay_ms;
+};
+
 struct apple_wifi_pwrctrl {
 	struct pci_pwrctrl pwrctrl;
 	struct gpio_desc *device_wake;
 	struct regulator *vdd;
+	const struct apple_wifi_pwrctrl_data *data;
 };
+
+static const struct apple_wifi_pwrctrl_data apple_d111_wifi_data = {
+	.device_wake_before_vdd = true,
+	.step_delay_min_us = 2500,
+	.step_delay_max_us = 5000,
+};
+
+static const struct apple_wifi_pwrctrl_data apple_j172_wifi_data = {
+	.stabilization_delay_ms = 100,
+};
+
+static void apple_wifi_step_delay(const struct apple_wifi_pwrctrl *wifi)
+{
+	if (wifi->data->step_delay_min_us)
+		usleep_range(wifi->data->step_delay_min_us,
+			     wifi->data->step_delay_max_us);
+}
+
+static void apple_wifi_set_device_wake(struct apple_wifi_pwrctrl *wifi,
+				       int value)
+{
+	apple_wifi_step_delay(wifi);
+	gpiod_set_value_cansleep(wifi->device_wake, value);
+	apple_wifi_step_delay(wifi);
+}
+
+static int apple_wifi_set_vdd(struct apple_wifi_pwrctrl *wifi, bool enable)
+{
+	int ret;
+
+	apple_wifi_step_delay(wifi);
+	ret = enable ? regulator_enable(wifi->vdd) :
+		       regulator_disable(wifi->vdd);
+	apple_wifi_step_delay(wifi);
+
+	return ret;
+}
 
 static int apple_wifi_power_on(struct pci_pwrctrl *pwrctrl)
 {
@@ -27,11 +72,18 @@ static int apple_wifi_power_on(struct pci_pwrctrl *pwrctrl)
 		container_of(pwrctrl, struct apple_wifi_pwrctrl, pwrctrl);
 	int ret;
 
-	ret = regulator_enable(wifi->vdd);
-	if (ret)
-		return ret;
+	if (wifi->data->device_wake_before_vdd)
+		apple_wifi_set_device_wake(wifi, 1);
 
-	msleep(100);
+	ret = apple_wifi_set_vdd(wifi, true);
+	if (ret) {
+		if (wifi->data->device_wake_before_vdd)
+			apple_wifi_set_device_wake(wifi, 0);
+		return ret;
+	}
+
+	if (wifi->data->stabilization_delay_ms)
+		msleep(wifi->data->stabilization_delay_ms);
 
 	return 0;
 }
@@ -42,9 +94,8 @@ static int apple_wifi_power_off(struct pci_pwrctrl *pwrctrl)
 		container_of(pwrctrl, struct apple_wifi_pwrctrl, pwrctrl);
 	int ret;
 
-	gpiod_set_value_cansleep(wifi->device_wake, 0);
-
-	ret = regulator_disable(wifi->vdd);
+	apple_wifi_set_device_wake(wifi, 0);
+	ret = apple_wifi_set_vdd(wifi, false);
 
 	return ret;
 }
@@ -92,6 +143,10 @@ static int apple_wifi_pwrctrl_probe(struct platform_device *pdev)
 	if (!wifi)
 		return -ENOMEM;
 
+	wifi->data = device_get_match_data(dev);
+	if (!wifi->data)
+		return dev_err_probe(dev, -EINVAL, "missing match data\n");
+
 	wifi->device_wake = devm_gpiod_get(dev, "device-wake", GPIOD_OUT_LOW);
 	if (IS_ERR(wifi->device_wake))
 		return dev_err_probe(dev, PTR_ERR(wifi->device_wake),
@@ -119,7 +174,14 @@ static int apple_wifi_pwrctrl_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id apple_wifi_pwrctrl_of_match[] = {
-	{ .compatible = "pci14e4,43dc" },
+	{
+		.compatible = "apple,d111-bcm4355-wifi",
+		.data = &apple_d111_wifi_data,
+	},
+	{
+		.compatible = "pci14e4,43dc",
+		.data = &apple_j172_wifi_data,
+	},
 	{ }
 };
 MODULE_DEVICE_TABLE(of, apple_wifi_pwrctrl_of_match);

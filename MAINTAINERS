@@ -2680,7 +2680,7 @@ F:	Documentation/devicetree/bindings/power/supply/ti,bq27545-hdq.yaml
 F:	drivers/power/supply/apple_bellatrix_power.c
 F:	drivers/power/supply/apple_d2365_charger.c
 
-APPLE J172 WI-FI SUPPORT
+APPLE T8010 WI-FI SUPPORT
 M:	Paul Praschl <praschlpaul@g-p.at>
 L:	asahi@lists.linux.dev
 L:	linux-pci@vger.kernel.org
