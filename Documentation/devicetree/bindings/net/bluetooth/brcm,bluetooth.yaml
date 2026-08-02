@@ -16,6 +16,9 @@ properties:
   compatible:
     oneOf:
       - items:
+          - const: brcm,bcm4355c0-bt
+          - const: brcm,bcm4345c5
+      - items:
           - const: apple,j172-bcm4355c1-bt
           - const: brcm,bcm4355c1-bt
       - items:
