@@ -17,6 +17,7 @@
 #include <linux/jiffies.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/mux/consumer.h>
 #include <linux/of.h>
 #include <linux/serdev.h>
 #include <linux/spinlock.h>
@@ -66,6 +67,7 @@ struct w1_uart_config {
  * @serdev: serial device
  * @bus: w1-bus master
  * @mode: selected 1-Wire or HDQ protocol
+ * @hdq_mux: optional mux state routing HDQ to the application processor
  * @cfg_reset: config for 1-Wire reset
  * @cfg_touch_0: config for 1-Wire write-0 cycle
  * @cfg_touch_1: config for 1-Wire write-1 and read cycle
@@ -84,6 +86,7 @@ struct w1_uart_device {
 	struct serdev_device *serdev;
 	struct w1_bus_master bus;
 	enum w1_uart_mode mode;
+	struct mux_state *hdq_mux;
 
 	struct w1_uart_config cfg_reset;
 	struct w1_uart_config cfg_touch_0;
@@ -344,6 +347,15 @@ static int w1_uart_hdq_xfer(struct w1_uart_device *w1dev, u8 command)
 	ssize_t written;
 	unsigned int bit;
 	int ret;
+	int deselect_ret;
+
+	w1_uart_hdq_cancel_receive(w1dev);
+
+	if (w1dev->hdq_mux) {
+		ret = mux_state_select(w1dev->hdq_mux);
+		if (ret)
+			return ret;
+	}
 
 	for (bit = 0; bit < W1_UART_HDQ_BITS_PER_BYTE; bit++)
 		w1dev->hdq_command[bit] = command & BIT(bit) ?
@@ -351,7 +363,7 @@ static int w1_uart_hdq_xfer(struct w1_uart_device *w1dev, u8 command)
 
 	ret = w1_uart_hdq_break(w1dev);
 	if (ret)
-		return ret;
+		goto deselect_mux;
 
 	reinit_completion(&w1dev->rx_byte_received);
 	spin_lock_irqsave(&w1dev->hdq_rx_lock, flags);
@@ -380,10 +392,21 @@ static int w1_uart_hdq_xfer(struct w1_uart_device *w1dev, u8 command)
 		goto cancel_receive;
 	}
 
-	return 0;
+	ret = 0;
+	goto deselect_mux;
 
 cancel_receive:
 	w1_uart_hdq_cancel_receive(w1dev);
+
+deselect_mux:
+	if (w1dev->hdq_mux) {
+		deselect_ret = mux_state_deselect(w1dev->hdq_mux);
+		if (!ret && deselect_ret) {
+			w1_uart_hdq_cancel_receive(w1dev);
+			ret = deselect_ret;
+		}
+	}
+
 	return ret;
 }
 
@@ -548,10 +571,20 @@ static bool w1_uart_hdq_take_response(struct w1_uart_device *w1dev,
 static u8 w1_uart_hdq_reset_bus(void *data)
 {
 	struct w1_uart_device *w1dev = data;
+	int ret;
 
 	w1_uart_hdq_cancel_receive(w1dev);
+	if (w1dev->hdq_mux) {
+		ret = mux_state_select(w1dev->hdq_mux);
+		if (ret)
+			return 1;
+	}
 
-	return w1_uart_hdq_break(w1dev) ? 1 : 0;
+	ret = w1_uart_hdq_break(w1dev);
+	if (w1dev->hdq_mux && mux_state_deselect(w1dev->hdq_mux) && !ret)
+		ret = -EIO;
+
+	return ret ? 1 : 0;
 }
 
 static u8 w1_uart_hdq_read_byte(void *data)
@@ -601,6 +634,11 @@ static int w1_uart_probe(struct serdev_device *serdev)
 		w1dev->mode = variant->mode;
 
 	if (w1dev->mode == W1_UART_MODE_HDQ) {
+		w1dev->hdq_mux = devm_mux_state_get_optional(dev, "hdq");
+		if (IS_ERR(w1dev->hdq_mux))
+			return dev_err_probe(dev, PTR_ERR(w1dev->hdq_mux),
+					     "failed to get HDQ mux state\n");
+
 		w1dev->bus.write_byte = w1_uart_hdq_write_byte;
 		w1dev->bus.read_byte = w1_uart_hdq_read_byte;
 		w1dev->bus.read_block = w1_uart_hdq_read_block;
