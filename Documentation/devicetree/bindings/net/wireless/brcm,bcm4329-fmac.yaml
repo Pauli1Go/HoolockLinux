@@ -56,6 +56,9 @@ properties:
           - pci14e4,4433  # BCM4387
           - pci14e4,4434  # BCM4388
           - pci14e4,449d  # BCM43752
+      - items:
+          - const: apple,d111-bcm4355-wifi
+          - const: pci14e4,43dc
 
   reg:
     description: SDIO function number for the device (for most cases
@@ -91,8 +94,8 @@ properties:
   device-wake-gpios:
     maxItems: 1
     description:
-      Host-to-device wake signal held inactive while Apple PCIe modules are
-      powered for initial enumeration.
+      Host-to-device wake signal. Its required level during initial PCIe
+      enumeration depends on the Apple module integration.
 
   vdd-supply:
     description: Power supply for the Wi-Fi device.
