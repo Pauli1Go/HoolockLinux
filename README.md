@@ -10,9 +10,14 @@
 | Internal NVMe storage | Read/write; root filesystem boot | Read/write; root filesystem boot |
 | Debian graphical desktop | Working | Working |
 | Touchscreen | Working, including multi-touch | Working, including multi-touch |
-| Battery and charging status | Working | Not yet validated |
+| Battery and charging status | Working | Working |
 | Wi-Fi | Working, including station and AP modes | Not yet implemented |
 | Bluetooth | Working; RF calibration remains open | Not yet implemented |
+| Integrated Speakers | Not yet implemented | Not yet implemented |
+| Auto Brightness | Not yet implemented | Not yet implemented |
+| Auto Rotation | Not yet implemented | Not yet implemented |
+| Fake Home Button | - | Not yet implemented |
+| GPU | Not yet implemented | Not yet implemented |
 
 “Working” means that the feature has been validated on the device named in
 the table. Other variants may require additional Device Tree, calibration,
@@ -86,9 +91,9 @@ performance must therefore not yet be considered fully calibrated.
 ### Current state
 
 The tested iPhone 7 Plus boots Debian from internal NVMe storage and reaches a
-graphical desktop. Internal storage and the D111 touchscreen are operational.
-Battery, Wi-Fi, Bluetooth, audio, cameras, sensors, and cellular hardware are
-not part of the currently validated iPhone support.
+graphical desktop. Internal storage, the D111 touchscreen, battery telemetry,
+and charging are operational. Wi-Fi, Bluetooth, audio, cameras, sensors, and
+cellular hardware are not part of the currently validated iPhone support.
 
 The iPhone 7 Plus support includes:
 
@@ -97,8 +102,10 @@ The iPhone 7 Plus support includes:
 - the T8010 SPI2 controller and board-specific SIO DMA routing;
 - 8-bit Chestnut PMIC register access;
 - regulator-managed Adelyn core and Chestnut high-voltage touch supplies;
-- D111 Apple Z2 firmware and runtime protocol support; and
-- transfer of four device-specific touch calibrations by m1n1.
+- D111 Apple Z2 firmware and runtime protocol support;
+- transfer of four device-specific touch calibrations by m1n1;
+- cached BQ27545 battery telemetry over the muxed UART/HDQ path; and
+- automatic SN2400 charging with input-current ramping and VBUS foldback.
 
 ### Touch
 
@@ -115,12 +122,37 @@ The touchscreen power sequence uses normal regulator consumers for the
 Adelyn core and Chestnut high-voltage rails. The kernel does not program PMIC
 registers directly from the touchscreen driver or Device Tree.
 
+### Battery and charging
+
+The D111 BQ27545 fuel gauge is exposed through the standard Linux
+`power_supply` interface as `battery`. Present state, charge status, voltage,
+current, capacity, temperature, charge counters, full-charge capacity, and
+cycle count are available without issuing a new HDQ transaction for every
+userspace read. A periodic cache worker performs the serialized HDQ telemetry
+updates through the SN2400 mux.
+
+The SN2400 charger is exposed as the standard `usb` power supply and binds
+automatically during boot. It is built into the D111 kernel configuration, so
+no module copy, `insmod`, userspace daemon, or manual driver rebind is needed.
+
+Input current starts conservatively at 300 mA and increases in 25 mA steps.
+The driver monitors VBUS and folds the learned limit back when the source or
+cable droops. It treats VBUS below 4.0 V as unsafe, retains the safe session
+limit across short cable interruptions, and starts a new current-learning
+session after a sustained detach.
+
+Hardware validation on the tested iPhone 7 Plus showed the battery charging
+at approximately 0.39 A with VBUS around 4.88--4.98 V. Automatic binding,
+cached battery-status updates, and controlled charger unbind/rebind were also
+validated. The actual charge rate remains dependent on the connected cable and
+power source.
+
 ### Remaining hardware
 
-The iPad 7 Wi-Fi, Bluetooth, and battery integrations must not be assumed to
-apply directly to the iPhone. The iPhone board topology, GPIOs, firmware,
+The iPad 7 Wi-Fi and Bluetooth integrations must not be assumed to apply
+directly to the iPhone. The iPhone board topology, GPIOs, firmware,
 calibration, power sequencing, and Device Tree descriptions still need to be
-implemented and validated separately for each subsystem.
+implemented and validated separately for each remaining subsystem.
 
 ## Firmware and calibration
 
