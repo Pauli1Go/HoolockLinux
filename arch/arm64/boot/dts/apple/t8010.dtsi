@@ -355,6 +355,16 @@
 			status = "disabled";
 		};
 
+		pcie0_dart2: iommu@603008000 {
+			compatible = "apple,t8010-dart", "apple,s5l8960x-dart";
+			reg = <0x6 0x03008000 0x0 0x4000>;
+			#iommu-cells = <1>;
+			interrupts = <AIC_IRQ 277 IRQ_TYPE_LEVEL_HIGH>;
+			power-domains = <&ps_pcie>;
+			apple,dma-range = <0x0 0x80000000 0x0 0x3ffff000>;
+			status = "disabled";
+		};
+
 		pcie0_dart3: iommu@604008000 {
 			compatible = "apple,t8010-dart", "apple,s5l8960x-dart";
 			reg = <0x6 0x04008000 0x0 0x4000>;
