@@ -10,14 +10,21 @@ maintainers:
   - Brian Masney <masneyb@onstation.org>
 
 description: |
-  Ambient light sensing with an i2c interface.
+  Ambient light sensing with an i2c interface. Apple CT821 factory
+  calibration is stored in SysCfg. On systems where the SysCfg NVMEM
+  provider is created by boot firmware, the static board tree omits the
+  NVMEM link and firmware adds both NVMEM properties before kernel handoff.
 
 properties:
   compatible:
-    enum:
-      - amstaos,tsl2580
-      - amstaos,tsl2581
-      - amstaos,tsl2583
+    oneOf:
+      - enum:
+          - amstaos,tsl2580
+          - amstaos,tsl2581
+          - amstaos,tsl2583
+      - items:
+          - const: apple,ct821
+          - const: amstaos,tsl2581
 
   reg:
     maxItems: 1
@@ -28,9 +35,37 @@ properties:
   vcc-supply:
     description: Regulator that provides power to the sensor
 
+  nvmem-cells:
+    description:
+      Apple CT821 factory LSCI ambient-light calibration data. Boot firmware
+      must populate this together with nvmem-cell-names when the provider is
+      not statically representable.
+    maxItems: 1
+
+  nvmem-cell-names:
+    items:
+      - const: calibration
+
 required:
   - compatible
   - reg
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: apple,ct821
+    then:
+      dependentRequired:
+        nvmem-cells:
+          - nvmem-cell-names
+        nvmem-cell-names:
+          - nvmem-cells
+    else:
+      properties:
+        nvmem-cells: false
+        nvmem-cell-names: false
 
 additionalProperties: false
 
@@ -41,8 +76,10 @@ examples:
         #size-cells = <0>;
 
         light-sensor@29 {
-                compatible = "amstaos,tsl2581";
-                reg = <0x29>;
+            compatible = "apple,ct821", "amstaos,tsl2581";
+            reg = <0x29>;
+            nvmem-cells = <&als_calibration>;
+            nvmem-cell-names = "calibration";
         };
     };
 ...
