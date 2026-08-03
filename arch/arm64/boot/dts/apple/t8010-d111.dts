@@ -100,6 +100,16 @@
 	};
 };
 
+&i2c2 {
+	status = "okay";
+
+	light-sensor@29 {
+		compatible = "apple,ct821", "amstaos,tsl2581";
+		reg = <0x29>;
+		interrupts-extended = <&pinctrl_ap 141 IRQ_TYPE_LEVEL_LOW>;
+	};
+};
+
 &pinctrl_ap {
 	battery_swi_pins: battery-swi-pins {
 		pinmux = <APPLE_PINMUX(173, 1)>;
