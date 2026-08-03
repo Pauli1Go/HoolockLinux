@@ -45,8 +45,8 @@
 #define TSL2583_CNTL_PWR_ON		0x01
 
 /* tsl2583 status reg masks */
-#define TSL2583_STA_ADC_VALID		0x01
-#define TSL2583_STA_ADC_INTR		0x10
+#define TSL2583_STA_ADC_VALID		0x10
+#define TSL2583_STA_ADC_INTR		0x20
 
 /* Lux calculation constants */
 #define TSL2583_LUX_CALC_OVER_FLOW	65535
@@ -179,8 +179,8 @@ static int tsl2583_get_lux(struct iio_dev *indio_dev)
 	}
 
 	/* is data new & valid */
-	if (!(ret & TSL2583_STA_ADC_INTR)) {
-		dev_err(&chip->client->dev, "%s: data not valid; returning last value\n",
+	if (!(ret & TSL2583_STA_ADC_VALID)) {
+		dev_dbg(&chip->client->dev, "%s: data not valid; returning last value\n",
 			__func__);
 		ret = chip->als_cur_info.lux; /* return LAST VALUE */
 		goto done;
@@ -460,6 +460,9 @@ static int tsl2583_chip_init_and_power_on(struct iio_dev *indio_dev)
 					    TSL2583_CNTL_ADC_ENBL);
 	if (ret < 0)
 		return ret;
+
+	/* Account for the 2.7 ms integration-time granularity. */
+	msleep(chip->als_settings.als_time + 3);
 
 	return ret;
 }
@@ -846,6 +849,9 @@ static int tsl2583_probe(struct i2c_client *clientp)
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->name = chip->client->name;
 
+	/* Load defaults before exposing the IIO device to userspace. */
+	tsl2583_defaults(chip);
+
 	pm_runtime_enable(&clientp->dev);
 	pm_runtime_set_autosuspend_delay(&clientp->dev,
 					 TSL2583_POWER_OFF_DELAY_MS);
@@ -855,11 +861,9 @@ static int tsl2583_probe(struct i2c_client *clientp)
 	if (ret) {
 		dev_err(&clientp->dev, "%s: iio registration failed\n",
 			__func__);
+		pm_runtime_disable(&clientp->dev);
 		return ret;
 	}
-
-	/* Load up the V2 defaults (these are hard coded defaults for now) */
-	tsl2583_defaults(chip);
 
 	dev_info(&clientp->dev, "Light sensor found.\n");
 
