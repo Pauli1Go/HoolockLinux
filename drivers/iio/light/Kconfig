@@ -635,6 +635,16 @@ config TSL2583
 	  Provides support for the TAOS tsl2580, tsl2581 and tsl2583 devices.
 	  Access ALS data via iio, sysfs.
 
+config TSL2583_KUNIT_TEST
+	tristate "KUnit tests for TSL2583" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Build tests for the CT821 factory-calibration gain-factor parser,
+	  including rejection of zero and overflowing gain factors from LSCI.
+	  These tests do not require hardware. If built as a module, it will be
+	  called tsl2583-test.
+
 config TSL2591
         tristate "TAOS TSL2591 ambient light sensor"
         depends on I2C
