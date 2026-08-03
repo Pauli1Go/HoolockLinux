@@ -14,7 +14,7 @@
 | Wi-Fi | Working, including station and AP modes | Working in station mode; AP mode not working |
 | Bluetooth | Working; RF calibration remains open | Working; RF calibration remains open |
 | Integrated Speakers | Not yet implemented | Not yet implemented |
-| Auto Brightness | Not yet implemented | Not yet implemented |
+| Auto Brightness (ambient light) | Not yet implemented | Working |
 | Auto Rotation | Not yet implemented | Not yet implemented |
 | Fake Home Button | - | Not yet implemented |
 | GPU | Not yet implemented | Not yet implemented |
@@ -111,6 +111,8 @@ The iPhone 7 Plus support includes:
 - BCM4355C1 Wi-Fi through the standard `brcmfmac` PCIe stack;
 - runtime Apple SysCfg/NVMEM delivery of the device MAC address and Wi-Fi
   calibration;
+- the CT821 ambient-light sensor with per-device LSCI factory calibration,
+  standard IIO exposure, and GNOME automatic brightness control;
 - T8010 UART1 and D111 BCM4355C0 Bluetooth through the standard `hci_bcm` and
   BlueZ stacks; and
 - automatic SN2400 charging with input-current ramping and VBUS foldback.
@@ -247,8 +249,8 @@ Both devices use the same high-level boot flow:
 - D111 touch, Wi-Fi, and Bluetooth firmware in the initramfs;
 - all four touch calibrations from the same iPhone, supplied through m1n1;
 - the private SysCfg data from the same iPhone for Wi-Fi identity and
-  calibration, together with the device-specific Bluetooth identity supplied
-  through m1n1; and
+  calibration and CT821 `LSCI` ambient-light calibration, together with the
+  device-specific Bluetooth identity supplied through m1n1; and
 - a prepared Linux root filesystem on the iPhone's Linux partition.
 
 This remains an experimental bring-up project. Back up important data and
