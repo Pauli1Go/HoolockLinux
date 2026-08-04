@@ -15,6 +15,7 @@
 #include <linux/input/mt.h>
 #include <linux/input/touchscreen.h>
 #include <linux/interrupt.h>
+#include <linux/irq.h>
 #include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -124,7 +125,11 @@ struct apple_z2 {
 	bool j172_sync_pinctrl_active;
 	bool hv_enabled;
 	bool core_enabled;
+	bool runtime_irq_logged;
+	bool runtime_frame_logged;
+	bool runtime_error_logged;
 	enum apple_z2_protocol_state protocol_state;
+	unsigned int boot_irq_count;
 	unsigned int bpw16_min_len;
 	unsigned int dma_min_len;
 	unsigned int z2_inter_packet_delay_us;
@@ -530,7 +535,7 @@ static bool apple_z2_gen2_packet_valid(const u8 *buf, size_t buf_len,
 	return !checksum;
 }
 
-static int apple_z2_read_packet(struct apple_z2 *z2)
+static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 {
 	struct spi_transfer xfer = { };
 	int error;
@@ -554,8 +559,15 @@ static int apple_z2_read_packet(struct apple_z2 *z2)
 		return error;
 	apple_z2_post_z2_xfer_delay(z2);
 
-	if (z2->rx_buf[0] != APPLE_Z2_REPLY_INTERRUPT_DATA)
+	if (z2->rx_buf[0] != APPLE_Z2_REPLY_INTERRUPT_DATA) {
+		if (from_irq && !z2->runtime_error_logged) {
+			dev_warn(&z2->spidev->dev,
+				 "runtime IRQ returned no packet: reply=%#02x counter=%u\n",
+				 z2->rx_buf[0], counter);
+			z2->runtime_error_logged = true;
+		}
 		return 0;
+	}
 
 	pkt_len = (get_unaligned_le16(z2->rx_buf + 1) + 8) & 0xfffffffc;
 	if (pkt_len > APPLE_Z2_RX_BUF_SIZE) {
@@ -581,9 +593,20 @@ static int apple_z2_read_packet(struct apple_z2 *z2)
 		apple_z2_gen2_packet_valid(z2->rx_buf, pkt_len, counter);
 	if (z2->runtime_frame_valid) {
 		payload_len = get_unaligned_le16(z2->rx_buf + 2);
+		if (!z2->runtime_frame_logged) {
+			dev_info(&z2->spidev->dev,
+				 "first valid runtime frame: packet=%zu payload=%u report=%#02x counter=%u\n",
+				 pkt_len, payload_len - 2, z2->rx_buf[5], counter);
+			z2->runtime_frame_logged = true;
+		}
 		apple_z2_dispatch_frame(z2, z2->rx_buf + 5,
 					payload_len - 2);
 		z2->index_parity = !z2->index_parity;
+	} else if (!z2->runtime_error_logged) {
+		dev_warn(&z2->spidev->dev,
+			 "invalid runtime frame: packet=%zu header=%5ph counter=%u\n",
+			 pkt_len, z2->rx_buf, counter);
+		z2->runtime_error_logged = true;
 	}
 
 	return 0;
@@ -594,7 +617,11 @@ static void apple_z2_reset_protocol(struct apple_z2 *z2)
 	z2->protocol_state = APPLE_Z2_STATE_OFF;
 	z2->index_parity = 0;
 	z2->runtime_frame_valid = false;
+	z2->runtime_irq_logged = false;
+	z2->runtime_frame_logged = false;
+	z2->runtime_error_logged = false;
 	z2->surface_descriptor_valid = false;
+	z2->boot_irq_count = 0;
 }
 
 static int apple_z2_advance_protocol(struct apple_z2 *z2,
@@ -938,8 +965,8 @@ static int apple_z2_store_surface_descriptor(struct apple_z2 *z2, u16 len)
 	if (test_bit(ABS_Y, z2->input_dev->absbit))
 		input_abs_set_res(z2->input_dev, ABS_Y, y_res);
 
-	dev_dbg(&z2->spidev->dev,
-		"surface %ux%u, bounds x=%d..%d y=%d..%d, resolution %ux%u units/mm\n",
+	dev_info(&z2->spidev->dev,
+		 "surface %ux%u, bounds x=%d..%d y=%d..%d, resolution %ux%u units/mm\n",
 		 width, height, min_x, max_x, min_y, max_y, x_res, y_res);
 
 	return 0;
@@ -978,8 +1005,8 @@ static int apple_z2_iphone7_plus_init_locked(struct apple_z2 *z2)
 					     sizeof(enable_reports),
 					     "iphone7-plus-af");
 	if (!error)
-		dev_dbg(&z2->spidev->dev,
-			"iPhone 7 Plus report initialization complete\n");
+		dev_info(&z2->spidev->dev,
+			 "iPhone 7 Plus report initialization complete\n");
 
 	return error;
 }
@@ -1106,13 +1133,25 @@ static int apple_z2_j172_init_writes_locked(struct apple_z2 *z2)
 static irqreturn_t apple_z2_irq(int irq, void *data)
 {
 	struct apple_z2 *z2 = data;
+	int error;
 
 	if (unlikely(!z2->booted)) {
+		z2->boot_irq_count++;
 		complete(&z2->boot_irq);
 	} else {
+		if (!z2->runtime_irq_logged) {
+			dev_info(&z2->spidev->dev,
+				 "first runtime IRQ received: irq=%d boot-irqs=%u\n",
+				 irq, z2->boot_irq_count);
+			z2->runtime_irq_logged = true;
+		}
 		mutex_lock(&z2->io_lock);
-		apple_z2_read_packet(z2);
+		error = apple_z2_read_packet(z2, true);
 		mutex_unlock(&z2->io_lock);
+		if (error)
+			dev_warn_ratelimited(&z2->spidev->dev,
+					     "runtime packet read failed: %d\n",
+					     error);
 	}
 
 	return IRQ_HANDLED;
@@ -1493,6 +1532,7 @@ static const u8 *apple_z2_build_iphone7_cal(struct apple_z2 *z2,
 	u8 *cal_data;
 	int cal_size;
 	size_t padded_size;
+	size_t words;
 	size_t blob_size;
 	u32 checksum;
 	u16 header_checksum;
@@ -1509,7 +1549,8 @@ static const u8 *apple_z2_build_iphone7_cal(struct apple_z2 *z2,
 		return ERR_PTR(-E2BIG);
 
 	padded_size = round_up((size_t)cal_size, sizeof(__le32));
-	if (padded_size / sizeof(__le32) - 1 > U16_MAX)
+	words = padded_size / sizeof(__le32);
+	if (words > U16_MAX)
 		return ERR_PTR(-E2BIG);
 	blob_size = 12 + padded_size + sizeof(__le32);
 	u8 *blob_data __free(kfree) = kzalloc(blob_size, GFP_KERNEL);
@@ -1518,7 +1559,8 @@ static const u8 *apple_z2_build_iphone7_cal(struct apple_z2 *z2,
 
 	put_unaligned_be16(0x18e1, blob_data);
 	put_unaligned_be16(APPLE_Z2_HBPP_CMD_BLOB, blob_data + 2);
-	put_unaligned_be16(padded_size / sizeof(__le32) - 1, blob_data + 4);
+	/* HBPP 0x103 encodes the full number of four-byte payload words. */
+	put_unaligned_be16(words, blob_data + 4);
 	put_unaligned_be16(address, blob_data + 6);
 	put_unaligned_be16(address >> 16, blob_data + 8);
 	header_checksum = 0;
@@ -1539,6 +1581,10 @@ static const u8 *apple_z2_build_iphone7_cal(struct apple_z2 *z2,
 		swap(cal_data[i], cal_data[i + 1]);
 	put_unaligned_be16(checksum, cal_data + padded_size);
 	put_unaligned_be16(checksum >> 16, cal_data + padded_size + 2);
+
+	dev_info(&z2->spidev->dev,
+		 "calibration %s: size=%d padded=%zu hbpp103-words=%zu address=%#x\n",
+		 property, cal_size, padded_size, words, address);
 
 	*size = blob_size;
 	return no_free_ptr(blob_data);
@@ -1595,7 +1641,7 @@ static int apple_z2_send_firmware_blob(struct apple_z2 *z2, const u8 *data,
 		if (!ready)
 			return dev_err_probe(&z2->spidev->dev, -EPROTO,
 					     "touch controller not ready\n");
-		dev_dbg(&z2->spidev->dev, "HBPP14 ready\n");
+		dev_info(&z2->spidev->dev, "HBPP14 ready\n");
 	}
 
 	if (!init || !z2->no_init_ack) {
@@ -1704,8 +1750,8 @@ static int apple_z2_wait_ready_irq(struct apple_z2 *z2, u32 timeout_ms)
 	    !apple_z2_wait_firmware_irq(z2, timeout_ms))
 		return -ETIMEDOUT;
 
-	dev_dbg(&z2->spidev->dev, "firmware ready IRQ%s received\n",
-		apple_z2_is_j172(z2) ? "s" : "");
+	dev_info(&z2->spidev->dev, "firmware ready IRQ%s received\n",
+		 apple_z2_is_j172(z2) ? "s" : "");
 	return apple_z2_advance_protocol(z2, APPLE_Z2_STATE_HBPP_READY,
 					 APPLE_Z2_STATE_FIRMWARE_READY);
 }
@@ -1776,8 +1822,8 @@ static int apple_z2_apply_fw_config(struct apple_z2 *z2, const u8 *data,
 	}
 
 	apple_z2_apply_z2_delays(z2);
-	dev_dbg(&spi->dev,
-		"firmware SPI config: valid=%#x dma-min-len=%u bpw16-min-len=%u z2-delay=%u cs-delay=%u boot-timeout=%u mode=%#x\n",
+	dev_info(&spi->dev,
+		 "firmware SPI config: valid=%#x dma-min-len=%u bpw16-min-len=%u z2-delay=%u cs-delay=%u boot-timeout=%u mode=%#x\n",
 		 valid, z2->dma_min_len, z2->bpw16_min_len,
 		 z2->z2_inter_packet_delay_us,
 		 z2->z2_cs_delay_us, z2->boot_timeout_ms, spi->mode);
@@ -1931,15 +1977,21 @@ static int apple_z2_upload_firmware(struct apple_z2 *z2)
 		error = apple_z2_iphone7_plus_init_locked(z2);
 		if (!error) {
 			z2->booted = true;
-			error = apple_z2_read_packet(z2);
+			error = apple_z2_read_packet(z2, false);
 		}
 		mutex_unlock(&z2->io_lock);
+		if (!error)
+			dev_info(&z2->spidev->dev,
+				 "runtime ready: firmware=%s irq=%d trigger=%#x boot-irqs=%u\n",
+				 z2->fw_name, z2->spidev->irq,
+				 irq_get_trigger_type(z2->spidev->irq),
+				 z2->boot_irq_count);
 		return error;
 	}
 
 	z2->booted = true;
 	mutex_lock(&z2->io_lock);
-	error = apple_z2_read_packet(z2);
+	error = apple_z2_read_packet(z2, false);
 	if (!error && apple_z2_is_j172(z2) && !z2->runtime_frame_valid)
 		error = -EPROTO;
 	if (!error && apple_z2_is_j172(z2))
