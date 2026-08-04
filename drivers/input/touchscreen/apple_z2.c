@@ -1142,13 +1142,18 @@ static int apple_z2_j172_init_writes_locked(struct apple_z2 *z2)
 static irqreturn_t apple_z2_irq(int irq, void *data)
 {
 	struct apple_z2 *z2 = data;
+	int error;
 
 	if (unlikely(!z2->booted)) {
 		complete(&z2->boot_irq);
 	} else {
 		mutex_lock(&z2->io_lock);
-		apple_z2_read_packet(z2);
+		error = apple_z2_read_packet(z2);
 		mutex_unlock(&z2->io_lock);
+		if (error)
+			dev_warn_ratelimited(&z2->spidev->dev,
+					     "runtime packet read failed: %d\n",
+					     error);
 	}
 
 	return IRQ_HANDLED;
