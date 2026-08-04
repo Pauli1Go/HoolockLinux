@@ -57,7 +57,9 @@ properties:
           - pci14e4,4434  # BCM4388
           - pci14e4,449d  # BCM43752
       - items:
-          - const: apple,d111-bcm4355-wifi
+          - enum:
+              - apple,d11-bcm4355-wifi
+              - apple,d111-bcm4355-wifi
           - const: pci14e4,43dc
 
   reg:

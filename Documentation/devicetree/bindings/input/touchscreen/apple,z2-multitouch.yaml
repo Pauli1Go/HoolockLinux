@@ -18,6 +18,7 @@ properties:
       - apple,j293-touchbar
       - apple,j493-touchbar
       - apple,j172-touchscreen
+      - apple,d11-touchscreen
       - apple,d111-touchscreen
 
   interrupts:
@@ -124,7 +125,9 @@ allOf:
   - if:
       properties:
         compatible:
-          const: apple,d111-touchscreen
+          enum:
+            - apple,d11-touchscreen
+            - apple,d111-touchscreen
     then:
       required:
         - clocks
