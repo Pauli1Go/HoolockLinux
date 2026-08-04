@@ -49,6 +49,7 @@
 #define APPLE_Z2_CMD_WAKE                0xEE
 #define APPLE_Z2_CMD_SIZE                16
 #define APPLE_Z2_RAW_XFER_MAX_SIZE       64
+#define APPLE_Z2_GEN2_MIN_RESULT_SIZE    64
 #define APPLE_Z2_HBPP_CMD_BLOB           0x3001
 #define APPLE_Z2_FW_MAGIC                0x5746325A
 #define APPLE_Z2_RX_BUF_SIZE             4000
@@ -535,6 +536,7 @@ static int apple_z2_read_packet(struct apple_z2 *z2)
 	struct spi_transfer xfer = { };
 	int error;
 	size_t pkt_len;
+	size_t wire_len;
 	u16 payload_len;
 	u8 counter;
 
@@ -562,12 +564,16 @@ static int apple_z2_read_packet(struct apple_z2 *z2)
 		dev_warn(&z2->spidev->dev, "packet too large: %zu\n", pkt_len);
 		return -EMSGSIZE;
 	}
+	wire_len = pkt_len;
+	if (apple_z2_is_d11(z2))
+		wire_len = max_t(size_t, wire_len,
+				 APPLE_Z2_GEN2_MIN_RESULT_SIZE);
 
 	if (apple_z2_is_j172(z2) || apple_z2_is_iphone7_plus(z2)) {
-		memset(z2->rx_buf, 0xa5, pkt_len);
+		memset(z2->rx_buf, 0xa5, wire_len);
 		xfer.tx_buf = z2->rx_buf;
 		xfer.rx_buf = z2->rx_buf;
-		xfer.len = pkt_len;
+		xfer.len = wire_len;
 		error = spi_sync_transfer(z2->spidev, &xfer, 1);
 	} else {
 		error = spi_read(z2->spidev, z2->rx_buf, pkt_len);
