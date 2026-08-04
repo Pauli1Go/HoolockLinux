@@ -36,6 +36,7 @@
 #define APPLE_Z2_INTERFACE_GRAPE         BIT(1)
 #define APPLE_Z2_HID_REPORT_ID           0x76
 #define APPLE_Z2_D111_TOUCH_REPORT       0x44
+#define APPLE_Z2_D11_STATUS_REPORT       0x50
 #define APPLE_Z2_REPORT_ENABLE           0xaf
 #define APPLE_Z2_D11_REPORT_ENABLE       0xe2
 #define APPLE_Z2_J172_HEADER_SIZE         32
@@ -557,6 +558,7 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 	u8 reply[APPLE_Z2_CMD_SIZE];
 	bool irq_line_level = false;
 	bool frame_valid;
+	bool strict_counter;
 	int error;
 	int irq_state_error;
 	size_t pkt_len;
@@ -629,12 +631,11 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 	if (apple_z2_is_iphone7_plus(z2))
 		apple_z2_post_z2_xfer_delay(z2);
 
-	/*
-	 * D11 produces fresh reports while retaining transport tag 2.  Its
-	 * report sequence still advances, so only validate the tag domain.
-	 */
-	frame_valid =
-		apple_z2_gen2_packet_valid(z2->rx_buf, pkt_len, counter, !apple_z2_is_d11(z2));
+	/* D11 touch reports retain tag 2, but its startup status does not. */
+	strict_counter = !apple_z2_is_d11(z2) ||
+			 (pkt_len > 5 && z2->rx_buf[5] ==
+					 APPLE_Z2_D11_STATUS_REPORT);
+	frame_valid = apple_z2_gen2_packet_valid(z2->rx_buf, pkt_len, counter, strict_counter);
 	z2->runtime_frame_valid = frame_valid;
 	if (z2->runtime_diag_count < APPLE_Z2_RUNTIME_DIAG_LIMIT) {
 		irq_state_error =
@@ -661,7 +662,8 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 			z2->runtime_frame_logged = true;
 		}
 		if (apple_z2_is_d11(z2) && !z2->runtime_candidate_logged &&
-		    (z2->rx_buf[5] != 0x50 || payload_len - 2 >=
+		    (z2->rx_buf[5] != APPLE_Z2_D11_STATUS_REPORT ||
+		     payload_len - 2 >=
 		     APPLE_Z2_FINGERS_OFFSET)) {
 			dev_info(&z2->spidev->dev,
 				 "first D11 runtime candidate: packet=%zu payload=%u report=%#02x data=%*phN\n",
@@ -1158,12 +1160,6 @@ static int apple_z2_iphone7_plus_init_locked(struct apple_z2 *z2)
 					     "iphone7-plus-af");
 	if (error)
 		return error;
-
-	if (apple_z2_is_d11(z2)) {
-		error = apple_z2_enable_d11_reports_locked(z2);
-		if (error)
-			return error;
-	}
 
 	dev_info(&z2->spidev->dev,
 		 "iPhone 7 Plus report initialization complete\n");
@@ -2140,6 +2136,8 @@ static int apple_z2_upload_firmware(struct apple_z2 *z2)
 			z2->booted = true;
 			error = apple_z2_read_packet(z2, false);
 		}
+		if (!error && apple_z2_is_d11(z2))
+			error = apple_z2_enable_d11_reports_locked(z2);
 		mutex_unlock(&z2->io_lock);
 		if (!error) {
 			dev_info(&z2->spidev->dev,
