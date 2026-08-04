@@ -24,6 +24,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/spi/spi.h>
 #include <linux/unaligned.h>
+#include <linux/workqueue.h>
 
 #define APPLE_Z2_NUM_FINGERS_OFFSET      16
 #define APPLE_Z2_FINGERS_OFFSET          24
@@ -52,6 +53,8 @@
 #define APPLE_Z2_RAW_XFER_MAX_SIZE       64
 #define APPLE_Z2_GEN2_MIN_RESULT_SIZE    64
 #define APPLE_Z2_RUNTIME_DIAG_LIMIT       8
+#define APPLE_Z2_RUNTIME_POLL_COUNT      40
+#define APPLE_Z2_RUNTIME_POLL_MS        500
 #define APPLE_Z2_HBPP_CMD_BLOB           0x3001
 #define APPLE_Z2_FW_MAGIC                0x5746325A
 #define APPLE_Z2_RX_BUF_SIZE             4000
@@ -131,6 +134,10 @@ struct apple_z2 {
 	bool runtime_frame_logged;
 	bool runtime_error_logged;
 	unsigned int runtime_diag_count;
+	unsigned int runtime_irq_count;
+	unsigned int runtime_frame_count;
+	unsigned int runtime_poll_count;
+	struct delayed_work runtime_poll_work;
 	enum apple_z2_protocol_state protocol_state;
 	unsigned int boot_irq_count;
 	unsigned int bpw16_min_len;
@@ -577,7 +584,8 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 			dev_info(&z2->spidev->dev,
 				 "runtime read %u (%s): reply=%16phN result=none irq-state=%d level=%u\n",
 				 z2->runtime_diag_count + 1,
-				 from_irq ? "irq" : "ready", reply,
+				 from_irq ? "irq" :
+				 z2->runtime_poll_count ? "poll" : "ready", reply,
 				 irq_state_error, irq_line_level);
 			z2->runtime_diag_count++;
 		}
@@ -623,13 +631,16 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 					      &irq_line_level);
 		dev_info(&z2->spidev->dev,
 			 "runtime read %u (%s): reply=%16phN packet=%zu wire=%zu valid=%u irq-state=%d level=%u data=%*phN\n",
-			 z2->runtime_diag_count + 1, from_irq ? "irq" : "ready",
+			 z2->runtime_diag_count + 1,
+			 from_irq ? "irq" :
+			 z2->runtime_poll_count ? "poll" : "ready",
 			 reply, pkt_len, wire_len, frame_valid, irq_state_error,
 			 irq_line_level, (int)min_t(size_t, wire_len,
 			 APPLE_Z2_GEN2_MIN_RESULT_SIZE), z2->rx_buf);
 		z2->runtime_diag_count++;
 	}
 	if (z2->runtime_frame_valid) {
+		z2->runtime_frame_count++;
 		payload_len = get_unaligned_le16(z2->rx_buf + 2);
 		if (!z2->runtime_frame_logged) {
 			dev_info(&z2->spidev->dev,
@@ -650,6 +661,40 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 	return 0;
 }
 
+static void apple_z2_schedule_runtime_poll(struct apple_z2 *z2)
+{
+	schedule_delayed_work(&z2->runtime_poll_work,
+			      msecs_to_jiffies(APPLE_Z2_RUNTIME_POLL_MS));
+}
+
+static void apple_z2_runtime_poll(struct work_struct *work)
+{
+	struct apple_z2 *z2 = container_of(to_delayed_work(work),
+					   struct apple_z2, runtime_poll_work);
+	int error;
+
+	if (!READ_ONCE(z2->booted))
+		return;
+
+	mutex_lock(&z2->io_lock);
+	z2->runtime_poll_count++;
+	error = apple_z2_read_packet(z2, false);
+	mutex_unlock(&z2->io_lock);
+	if (error)
+		dev_warn_ratelimited(&z2->spidev->dev,
+				     "runtime diagnostic poll failed: %d\n", error);
+
+	if (z2->runtime_poll_count < APPLE_Z2_RUNTIME_POLL_COUNT &&
+	    READ_ONCE(z2->booted)) {
+		apple_z2_schedule_runtime_poll(z2);
+	} else {
+		dev_info(&z2->spidev->dev,
+			 "runtime diagnostic polling complete: polls=%u irqs=%u valid-frames=%u\n",
+			 z2->runtime_poll_count, z2->runtime_irq_count,
+			 z2->runtime_frame_count);
+	}
+}
+
 static void apple_z2_reset_protocol(struct apple_z2 *z2)
 {
 	z2->protocol_state = APPLE_Z2_STATE_OFF;
@@ -659,6 +704,9 @@ static void apple_z2_reset_protocol(struct apple_z2 *z2)
 	z2->runtime_frame_logged = false;
 	z2->runtime_error_logged = false;
 	z2->runtime_diag_count = 0;
+	z2->runtime_irq_count = 0;
+	z2->runtime_frame_count = 0;
+	z2->runtime_poll_count = 0;
 	z2->surface_descriptor_valid = false;
 	z2->boot_irq_count = 0;
 }
@@ -1178,13 +1226,14 @@ static irqreturn_t apple_z2_irq(int irq, void *data)
 		z2->boot_irq_count++;
 		complete(&z2->boot_irq);
 	} else {
+		mutex_lock(&z2->io_lock);
+		z2->runtime_irq_count++;
 		if (!z2->runtime_irq_logged) {
 			dev_info(&z2->spidev->dev,
 				 "first runtime IRQ received: irq=%d boot-irqs=%u\n",
 				 irq, z2->boot_irq_count);
 			z2->runtime_irq_logged = true;
 		}
-		mutex_lock(&z2->io_lock);
 		error = apple_z2_read_packet(z2, true);
 		mutex_unlock(&z2->io_lock);
 		if (error)
@@ -2019,12 +2068,15 @@ static int apple_z2_upload_firmware(struct apple_z2 *z2)
 			error = apple_z2_read_packet(z2, false);
 		}
 		mutex_unlock(&z2->io_lock);
-		if (!error)
+		if (!error) {
 			dev_info(&z2->spidev->dev,
 				 "runtime ready: firmware=%s irq=%d trigger=%#x boot-irqs=%u\n",
 				 z2->fw_name, z2->spidev->irq,
 				 irq_get_trigger_type(z2->spidev->irq),
 				 z2->boot_irq_count);
+			if (apple_z2_is_d11(z2))
+				apple_z2_schedule_runtime_poll(z2);
+		}
 		return error;
 	}
 
@@ -2287,6 +2339,7 @@ static int apple_z2_probe(struct spi_device *spi)
 		return -ENOMEM;
 
 	z2->spidev = spi;
+	INIT_DELAYED_WORK(&z2->runtime_poll_work, apple_z2_runtime_poll);
 	z2->variant = info->variant;
 	z2->boot_timeout_ms = 20;
 	if (apple_z2_is_iphone7_plus(z2)) {
@@ -2420,9 +2473,10 @@ static int apple_z2_probe(struct spi_device *spi)
 
 static void apple_z2_stop(struct apple_z2 *z2)
 {
+	WRITE_ONCE(z2->booted, false);
+	cancel_delayed_work_sync(&z2->runtime_poll_work);
 	disable_irq(z2->spidev->irq);
 	gpiod_direction_output(z2->reset_gpio, 1);
-	z2->booted = false;
 	apple_z2_platform_power_off(z2);
 	apple_z2_reset_protocol(z2);
 }
