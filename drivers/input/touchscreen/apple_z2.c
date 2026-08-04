@@ -132,6 +132,7 @@ struct apple_z2 {
 	bool core_enabled;
 	bool runtime_irq_logged;
 	bool runtime_frame_logged;
+	bool runtime_candidate_logged;
 	bool runtime_error_logged;
 	unsigned int runtime_diag_count;
 	unsigned int runtime_irq_count;
@@ -648,6 +649,16 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 				 pkt_len, payload_len - 2, z2->rx_buf[5], counter);
 			z2->runtime_frame_logged = true;
 		}
+		if (apple_z2_is_d11(z2) && !z2->runtime_candidate_logged &&
+		    (z2->rx_buf[5] != 0x50 || payload_len - 2 >=
+		     APPLE_Z2_FINGERS_OFFSET)) {
+			dev_info(&z2->spidev->dev,
+				 "first D11 runtime candidate: packet=%zu payload=%u report=%#02x data=%*phN\n",
+				 pkt_len, payload_len - 2, z2->rx_buf[5],
+				 (int)min_t(size_t, pkt_len,
+				 APPLE_Z2_GEN2_MIN_RESULT_SIZE), z2->rx_buf);
+			z2->runtime_candidate_logged = true;
+		}
 		apple_z2_dispatch_frame(z2, z2->rx_buf + 5,
 					payload_len - 2);
 		z2->index_parity = !z2->index_parity;
@@ -702,6 +713,7 @@ static void apple_z2_reset_protocol(struct apple_z2 *z2)
 	z2->runtime_frame_valid = false;
 	z2->runtime_irq_logged = false;
 	z2->runtime_frame_logged = false;
+	z2->runtime_candidate_logged = false;
 	z2->runtime_error_logged = false;
 	z2->runtime_diag_count = 0;
 	z2->runtime_irq_count = 0;
