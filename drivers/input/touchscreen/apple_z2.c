@@ -53,7 +53,7 @@
 #define APPLE_Z2_RAW_XFER_MAX_SIZE       64
 #define APPLE_Z2_GEN2_MIN_RESULT_SIZE    64
 #define APPLE_Z2_RUNTIME_DIAG_LIMIT       8
-#define APPLE_Z2_RUNTIME_POLL_COUNT      40
+#define APPLE_Z2_RUNTIME_POLLS_PER_PHASE 20
 #define APPLE_Z2_RUNTIME_POLL_MS        500
 #define APPLE_Z2_HBPP_CMD_BLOB           0x3001
 #define APPLE_Z2_FW_MAGIC                0x5746325A
@@ -99,6 +99,12 @@ enum apple_z2_variant {
 	APPLE_Z2_VARIANT_D111,
 };
 
+enum apple_z2_runtime_diag_phase {
+	APPLE_Z2_RUNTIME_DIAG_AF,
+	APPLE_Z2_RUNTIME_DIAG_E2,
+	APPLE_Z2_RUNTIME_DIAG_D8,
+};
+
 struct apple_z2_chip_info {
 	const char *name;
 	enum apple_z2_variant variant;
@@ -138,6 +144,10 @@ struct apple_z2 {
 	unsigned int runtime_irq_count;
 	unsigned int runtime_frame_count;
 	unsigned int runtime_poll_count;
+	unsigned int runtime_phase_poll_count;
+	unsigned int runtime_phase_irq_start;
+	unsigned int runtime_phase_frame_start;
+	enum apple_z2_runtime_diag_phase runtime_diag_phase;
 	struct delayed_work runtime_poll_work;
 	enum apple_z2_protocol_state protocol_state;
 	unsigned int boot_irq_count;
@@ -224,6 +234,9 @@ static void apple_z2_apply_z2_delays(struct apple_z2 *z2);
 static void apple_z2_post_z2_xfer_delay(struct apple_z2 *z2);
 static void apple_z2_set_gpio(struct gpio_desc *gpio, int value);
 static void apple_z2_z2_checksum(u8 *cmd, unsigned int len);
+static int apple_z2_write_report_locked(struct apple_z2 *z2, u8 report,
+					const u8 *data, u8 len,
+					const char *tag);
 
 static bool apple_z2_float_to_integer(const u8 *raw, s64 *value)
 {
@@ -546,9 +559,25 @@ static bool apple_z2_gen2_packet_valid(const u8 *buf, size_t buf_len,
 	return !checksum;
 }
 
+static const char *
+apple_z2_runtime_diag_phase_name(enum apple_z2_runtime_diag_phase phase)
+{
+	switch (phase) {
+	case APPLE_Z2_RUNTIME_DIAG_AF:
+		return "af";
+	case APPLE_Z2_RUNTIME_DIAG_E2:
+		return "e2";
+	case APPLE_Z2_RUNTIME_DIAG_D8:
+		return "d8";
+	}
+
+	return "unknown";
+}
+
 static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 {
 	struct spi_transfer xfer = { };
+	const char *phase_name;
 	u8 reply[APPLE_Z2_CMD_SIZE];
 	bool irq_line_level = false;
 	bool frame_valid;
@@ -560,6 +589,7 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 	u8 counter;
 
 	z2->runtime_frame_valid = false;
+	phase_name = apple_z2_runtime_diag_phase_name(z2->runtime_diag_phase);
 	memset(z2->tx_buf, 0, APPLE_Z2_CMD_SIZE);
 	memset(z2->rx_buf, 0, APPLE_Z2_CMD_SIZE);
 	z2->tx_buf[0] = APPLE_Z2_CMD_READ_INTERRUPT_DATA;
@@ -583,10 +613,11 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 						      IRQCHIP_STATE_LINE_LEVEL,
 						      &irq_line_level);
 			dev_info(&z2->spidev->dev,
-				 "runtime read %u (%s): reply=%16phN result=none irq-state=%d level=%u\n",
+				 "runtime read %u (%s phase=%s): reply=%16phN result=none irq-state=%d level=%u\n",
 				 z2->runtime_diag_count + 1,
 				 from_irq ? "irq" :
-				 z2->runtime_poll_count ? "poll" : "ready", reply,
+				 z2->runtime_poll_count ? "poll" : "ready",
+				 phase_name, reply,
 				 irq_state_error, irq_line_level);
 			z2->runtime_diag_count++;
 		}
@@ -631,10 +662,11 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 					      IRQCHIP_STATE_LINE_LEVEL,
 					      &irq_line_level);
 		dev_info(&z2->spidev->dev,
-			 "runtime read %u (%s): reply=%16phN packet=%zu wire=%zu valid=%u irq-state=%d level=%u data=%*phN\n",
+			 "runtime read %u (%s phase=%s): reply=%16phN packet=%zu wire=%zu valid=%u irq-state=%d level=%u data=%*phN\n",
 			 z2->runtime_diag_count + 1,
 			 from_irq ? "irq" :
-			 z2->runtime_poll_count ? "poll" : "ready",
+				 z2->runtime_poll_count ? "poll" : "ready",
+			 phase_name,
 			 reply, pkt_len, wire_len, frame_valid, irq_state_error,
 			 irq_line_level, (int)min_t(size_t, wire_len,
 			 APPLE_Z2_GEN2_MIN_RESULT_SIZE), z2->rx_buf);
@@ -645,7 +677,8 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 		payload_len = get_unaligned_le16(z2->rx_buf + 2);
 		if (!z2->runtime_frame_logged) {
 			dev_info(&z2->spidev->dev,
-				 "first valid runtime frame: packet=%zu payload=%u report=%#02x counter=%u\n",
+				 "first valid runtime frame: phase=%s packet=%zu payload=%u report=%#02x counter=%u\n",
+				 phase_name,
 				 pkt_len, payload_len - 2, z2->rx_buf[5], counter);
 			z2->runtime_frame_logged = true;
 		}
@@ -653,7 +686,8 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 		    (z2->rx_buf[5] != 0x50 || payload_len - 2 >=
 		     APPLE_Z2_FINGERS_OFFSET)) {
 			dev_info(&z2->spidev->dev,
-				 "first D11 runtime candidate: packet=%zu payload=%u report=%#02x data=%*phN\n",
+				 "first D11 runtime candidate: phase=%s packet=%zu payload=%u report=%#02x data=%*phN\n",
+				 phase_name,
 				 pkt_len, payload_len - 2, z2->rx_buf[5],
 				 (int)min_t(size_t, pkt_len,
 				 APPLE_Z2_GEN2_MIN_RESULT_SIZE), z2->rx_buf);
@@ -678,10 +712,65 @@ static void apple_z2_schedule_runtime_poll(struct apple_z2 *z2)
 			      msecs_to_jiffies(APPLE_Z2_RUNTIME_POLL_MS));
 }
 
+static void apple_z2_log_runtime_phase(struct apple_z2 *z2)
+{
+	dev_info(&z2->spidev->dev,
+		 "D11 runtime diagnostic phase %s complete: polls=%u irqs=%u valid-frames=%u candidate=%u\n",
+		 apple_z2_runtime_diag_phase_name(z2->runtime_diag_phase),
+		 z2->runtime_phase_poll_count,
+		 z2->runtime_irq_count - z2->runtime_phase_irq_start,
+		 z2->runtime_frame_count - z2->runtime_phase_frame_start,
+		 z2->runtime_candidate_logged);
+}
+
+static int apple_z2_start_next_runtime_phase_locked(struct apple_z2 *z2)
+{
+	static const u8 enable = 1;
+	enum apple_z2_runtime_diag_phase next_phase;
+	const char *tag;
+	u8 report;
+	int error;
+
+	switch (z2->runtime_diag_phase) {
+	case APPLE_Z2_RUNTIME_DIAG_AF:
+		next_phase = APPLE_Z2_RUNTIME_DIAG_E2;
+		report = 0xe2;
+		tag = "d11-diag-e2";
+		break;
+	case APPLE_Z2_RUNTIME_DIAG_E2:
+		next_phase = APPLE_Z2_RUNTIME_DIAG_D8;
+		report = 0xd8;
+		tag = "d11-diag-d8";
+		break;
+	case APPLE_Z2_RUNTIME_DIAG_D8:
+		return -EINVAL;
+	}
+
+	error = apple_z2_write_report_locked(z2, report, &enable,
+					     sizeof(enable), tag);
+	if (error)
+		return error;
+
+	z2->runtime_diag_phase = next_phase;
+	z2->runtime_phase_poll_count = 0;
+	z2->runtime_phase_irq_start = z2->runtime_irq_count;
+	z2->runtime_phase_frame_start = z2->runtime_frame_count;
+	z2->runtime_diag_count = 0;
+	z2->runtime_error_logged = false;
+	dev_info(&z2->spidev->dev,
+		 "D11 runtime diagnostic phase %s started: report=%#02x value=%u\n",
+		 apple_z2_runtime_diag_phase_name(next_phase), report, enable);
+
+	return 0;
+}
+
 static void apple_z2_runtime_poll(struct work_struct *work)
 {
 	struct apple_z2 *z2 = container_of(to_delayed_work(work),
 					   struct apple_z2, runtime_poll_work);
+	const char *phase_name;
+	bool done;
+	bool phase_logged = false;
 	int error;
 
 	if (!READ_ONCE(z2->booted))
@@ -689,20 +778,38 @@ static void apple_z2_runtime_poll(struct work_struct *work)
 
 	mutex_lock(&z2->io_lock);
 	z2->runtime_poll_count++;
+	z2->runtime_phase_poll_count++;
 	error = apple_z2_read_packet(z2, false);
+	if (!error && !z2->runtime_candidate_logged &&
+	    z2->runtime_phase_poll_count >=
+		APPLE_Z2_RUNTIME_POLLS_PER_PHASE) {
+		apple_z2_log_runtime_phase(z2);
+		phase_logged = true;
+		if (z2->runtime_diag_phase != APPLE_Z2_RUNTIME_DIAG_D8)
+			error = apple_z2_start_next_runtime_phase_locked(z2);
+	}
+	done = error || z2->runtime_candidate_logged ||
+	       (z2->runtime_diag_phase == APPLE_Z2_RUNTIME_DIAG_D8 &&
+		z2->runtime_phase_poll_count >=
+			APPLE_Z2_RUNTIME_POLLS_PER_PHASE);
+	if (done && !phase_logged &&
+	    (z2->runtime_candidate_logged || error))
+		apple_z2_log_runtime_phase(z2);
+	phase_name = apple_z2_runtime_diag_phase_name(z2->runtime_diag_phase);
 	mutex_unlock(&z2->io_lock);
 	if (error)
 		dev_warn_ratelimited(&z2->spidev->dev,
 				     "runtime diagnostic poll failed: %d\n", error);
 
-	if (z2->runtime_poll_count < APPLE_Z2_RUNTIME_POLL_COUNT &&
-	    READ_ONCE(z2->booted)) {
+	if (!done && READ_ONCE(z2->booted)) {
 		apple_z2_schedule_runtime_poll(z2);
 	} else {
 		dev_info(&z2->spidev->dev,
-			 "runtime diagnostic polling complete: polls=%u irqs=%u valid-frames=%u\n",
+			 "runtime diagnostic polling complete: phase=%s polls=%u irqs=%u valid-frames=%u candidate=%u error=%d\n",
+			 phase_name,
 			 z2->runtime_poll_count, z2->runtime_irq_count,
-			 z2->runtime_frame_count);
+			 z2->runtime_frame_count, z2->runtime_candidate_logged,
+			 error);
 	}
 }
 
@@ -719,6 +826,10 @@ static void apple_z2_reset_protocol(struct apple_z2 *z2)
 	z2->runtime_irq_count = 0;
 	z2->runtime_frame_count = 0;
 	z2->runtime_poll_count = 0;
+	z2->runtime_phase_poll_count = 0;
+	z2->runtime_phase_irq_start = 0;
+	z2->runtime_phase_frame_start = 0;
+	z2->runtime_diag_phase = APPLE_Z2_RUNTIME_DIAG_AF;
 	z2->surface_descriptor_valid = false;
 	z2->boot_irq_count = 0;
 }
@@ -843,9 +954,14 @@ static int apple_z2_z2_xfer_locked_delay(struct apple_z2 *z2,
 	if (post_delay)
 		apple_z2_post_z2_xfer_delay(z2);
 
-	dev_dbg(&z2->spidev->dev, "%s tx=%*ph rx=%*ph\n", tag,
-		APPLE_Z2_CMD_SIZE, z2->tx_buf, APPLE_Z2_CMD_SIZE,
-		z2->rx_buf);
+	if (apple_z2_is_d11(z2))
+		dev_info(&z2->spidev->dev,
+			 "D11 command %s: tx=%16phN rx=%16phN\n", tag,
+			 z2->tx_buf, z2->rx_buf);
+	else
+		dev_dbg(&z2->spidev->dev, "%s tx=%*ph rx=%*ph\n", tag,
+			APPLE_Z2_CMD_SIZE, z2->tx_buf,
+			APPLE_Z2_CMD_SIZE, z2->rx_buf);
 	return 0;
 }
 
@@ -916,6 +1032,8 @@ static int apple_z2_write_report_locked(struct apple_z2 *z2, u8 report,
 					const char *tag)
 {
 	char last_tag[32];
+	bool checksum_valid;
+	bool response_valid;
 	int error;
 
 	if (len > 11)
@@ -935,8 +1053,21 @@ static int apple_z2_write_report_locked(struct apple_z2 *z2, u8 report,
 	memset(z2->rx_buf, 0, APPLE_Z2_CMD_SIZE);
 	z2->tx_buf[0] = APPLE_Z2_CMD_LAST;
 	snprintf(last_tag, sizeof(last_tag), "%s-last", tag);
+	error = apple_z2_z2_xfer_locked(z2, last_tag);
+	if (error)
+		return error;
 
-	return apple_z2_z2_xfer_locked(z2, last_tag);
+	checksum_valid =
+		apple_z2_z2_checksum_valid(z2->rx_buf, APPLE_Z2_CMD_SIZE);
+	response_valid = z2->rx_buf[0] == APPLE_Z2_CMD_CTRL_WRITE_SHORT &&
+			 z2->rx_buf[1] == report && z2->rx_buf[2] == len &&
+			 !memcmp(z2->rx_buf + 3, data, len) && checksum_valid;
+	if (apple_z2_is_d11(z2))
+		dev_info(&z2->spidev->dev,
+			 "D11 report write %s: report=%#02x len=%u response-valid=%u response=%16phN\n",
+			 tag, report, len, response_valid, z2->rx_buf);
+
+	return 0;
 }
 
 static int apple_z2_read_report_info_locked(struct apple_z2 *z2, u8 report,
@@ -1010,8 +1141,15 @@ static int apple_z2_read_report_locked(struct apple_z2 *z2, u8 report,
 	if (error)
 		return error;
 	apple_z2_post_z2_xfer_delay(z2);
-	dev_dbg(&z2->spidev->dev, "%s long read len=%u\n", tag,
-		data_len);
+	if (apple_z2_is_d11(z2))
+		dev_info(&z2->spidev->dev,
+			 "D11 report read %s: len=%u response=%*phN\n", tag,
+			 data_len, (int)min_t(unsigned int, data_len,
+					     APPLE_Z2_GEN2_MIN_RESULT_SIZE),
+			 z2->rx_buf);
+	else
+		dev_dbg(&z2->spidev->dev, "%s long read len=%u\n", tag,
+			data_len);
 
 	return 0;
 }
@@ -1103,9 +1241,13 @@ static int apple_z2_iphone7_plus_init_locked(struct apple_z2 *z2)
 	error = apple_z2_write_report_locked(z2, 0xaf, enable_reports,
 					     sizeof(enable_reports),
 					     "iphone7-plus-af");
-	if (!error)
+	if (!error) {
 		dev_info(&z2->spidev->dev,
 			 "iPhone 7 Plus report initialization complete\n");
+		if (apple_z2_is_d11(z2))
+			dev_info(&z2->spidev->dev,
+				 "D11 runtime diagnostic phase af started: report=0xaf value=0\n");
+	}
 
 	return error;
 }
