@@ -11,4 +11,161 @@
 / {
 	compatible = "apple,d11", "apple,t8010", "apple,arm-platform";
 	model = "Apple iPhone 7 Plus (Qualcomm)";
+
+	aliases {
+		touchscreen0 = &touchscreen;
+		wifi0 = &wifi0;
+	};
+
+	d11_battery: battery {
+		compatible = "simple-battery";
+		constant-charge-current-max-microamp = <1950000>;
+	};
+
+	wlan_vdd: regulator-wlan-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "wlan-vdd";
+		gpio = <&pmu_gpio 10 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		off-on-delay-us = <2500>;
+	};
+};
+
+&pcie0 {
+	iommu-map = <0x100 &pcie0_dart0 0 1>,
+		    <0x200 &pcie0_dart3 0 1>;
+	pinctrl-0 = <&wifi_clkreq>;
+	pinctrl-names = "default";
+
+	pci@3,0 {
+		device_type = "pci";
+		reg = <0x1800 0x0 0x0 0x0 0x0>;
+		bus-range = <2 2>;
+		max-link-speed = <1>;
+		apple,manual-availability-iommu = <&pcie0_dart3 0>;
+		reset-gpios = <&pinctrl_ap 15 GPIO_ACTIVE_LOW>;
+
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+
+		wifi0: wifi@0,0 {
+			compatible = "apple,d11-bcm4355-wifi",
+				     "pci14e4,43dc";
+			reg = <0x20000 0x0 0x0 0x0 0x0>;
+			device-wake-gpios = <&pinctrl_ap 88 GPIO_ACTIVE_HIGH>;
+			vdd-supply = <&wlan_vdd>;
+			apple,antenna-sku = "XX";
+			brcm,board-type = "apple,sven";
+		};
+	};
+};
+
+&pcie0_dart3 {
+	status = "okay";
+};
+
+&i2c0 {
+	status = "okay";
+
+	pmic@27 {
+		compatible = "apple,chestnut-pmic";
+		reg = <0x27>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		touch_hv: regulator-touch-hv {
+			compatible = "apple,chestnut-touch-hv-regulator";
+			regulator-name = "touch-hv";
+		};
+	};
+};
+
+&i2c1 {
+	charger@75 {
+		compatible = "apple,sn2400";
+		reg = <0x75>;
+
+		sn2400_charger: charger {
+			compatible = "apple,sn2400-charger";
+			monitored-battery = <&d11_battery>;
+			input-current-limit-microamp = <2000000>;
+			mux-states = <&hdq_mux 0>;
+			mux-state-names = "hdq";
+		};
+
+		hdq_mux: hdq-mux {
+			compatible = "apple,sn2400-hdq-mux";
+			#mux-state-cells = <1>;
+		};
+	};
+};
+
+&i2c2 {
+	status = "okay";
+
+	light-sensor@29 {
+		compatible = "apple,ct821", "amstaos,tsl2581";
+		reg = <0x29>;
+		interrupts-extended = <&pinctrl_ap 141 IRQ_TYPE_LEVEL_LOW>;
+	};
+};
+
+&pinctrl_ap {
+	battery_swi_pins: battery-swi-pins {
+		pinmux = <APPLE_PINMUX(173, 1)>;
+	};
+
+	wifi_clkreq: wifi-clkreq-pins {
+		pinmux = <APPLE_PINMUX(19, 1)>;
+	};
+};
+
+&serial5 {
+	pinctrl-0 = <&battery_swi_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	onewire {
+		compatible = "ti,hdq-uart";
+		mux-states = <&hdq_mux 1>;
+		mux-state-names = "hdq";
+
+		fuel-gauge {
+			compatible = "apple,d11-bq27545", "ti,bq27545-hdq";
+			monitored-battery = <&d11_battery>;
+		};
+	};
+};
+
+&spi2 {
+	cs-gpios = <&pinctrl_ap 81 GPIO_ACTIVE_LOW>;
+	dmas = <&sio 0x18>;
+	dma-names = "tx";
+	status = "okay";
+
+	touchscreen: touchscreen@0 {
+		compatible = "apple,d11-touchscreen";
+		reg = <0>;
+		spi-max-frequency = <3000000>;
+		spi-cpol;
+		spi-cpha;
+		apple,z2-no-init-ack;
+		interrupts-extended = <&pinctrl_ap 166 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&pinctrl_ap 161 GPIO_ACTIVE_LOW>;
+		hv-supply = <&touch_hv>;
+		core-supply = <&touch_core>;
+		clocks = <&touchclk>;
+		firmware-name = "apple/dfrmtfw-d11-c1f5e-2.bin";
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <1920>;
+	};
+};
+
+&sio {
+	status = "okay";
+};
+
+&touchclk {
+	clock-frequency = <32768>;
 };
