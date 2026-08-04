@@ -34,6 +34,9 @@
 #define APPLE_Z2_INTERFACE_GRAPE         BIT(1)
 #define APPLE_Z2_HID_REPORT_ID           0x76
 #define APPLE_Z2_D111_TOUCH_REPORT       0x44
+#define APPLE_Z2_D11_STATUS_REPORT       0x50
+#define APPLE_Z2_REPORT_ENABLE           0xaf
+#define APPLE_Z2_D11_REPORT_ENABLE       0xe2
 #define APPLE_Z2_J172_HEADER_SIZE         32
 #define APPLE_Z2_J172_CONTACT_SIZE        48
 #define APPLE_Z2_J172_MAX_CONTACTS        32
@@ -590,7 +593,7 @@ static int apple_z2_read_packet(struct apple_z2 *z2)
 	/* D11 touch reports do not follow the requested alternating tag. */
 	strict_counter = !apple_z2_is_d11(z2) ||
 			 (pkt_len > 5 && z2->rx_buf[5] ==
-					 0x50);
+					 APPLE_Z2_D11_STATUS_REPORT);
 	z2->runtime_frame_valid =
 		apple_z2_gen2_packet_valid(z2->rx_buf, pkt_len, counter,
 					   strict_counter);
@@ -824,8 +827,24 @@ static int apple_z2_write_report_locked(struct apple_z2 *z2, u8 report,
 	memset(z2->rx_buf, 0, APPLE_Z2_CMD_SIZE);
 	z2->tx_buf[0] = APPLE_Z2_CMD_LAST;
 	snprintf(last_tag, sizeof(last_tag), "%s-last", tag);
+	error = apple_z2_z2_xfer_locked(z2, last_tag);
+	if (error)
+		return error;
 
-	return apple_z2_z2_xfer_locked(z2, last_tag);
+	if (apple_z2_is_d11(z2) &&
+	    (z2->rx_buf[0] != APPLE_Z2_CMD_LAST ||
+	     !apple_z2_z2_checksum_valid(z2->rx_buf, APPLE_Z2_CMD_SIZE)))
+		return -EPROTO;
+
+	return 0;
+}
+
+static int apple_z2_enable_d11_reports_locked(struct apple_z2 *z2)
+{
+	static const u8 enable = 1;
+
+	return apple_z2_write_report_locked(z2, APPLE_Z2_D11_REPORT_ENABLE,
+					    &enable, sizeof(enable), "d11-e2");
 }
 
 static int apple_z2_read_report_info_locked(struct apple_z2 *z2, u8 report,
@@ -899,8 +918,7 @@ static int apple_z2_read_report_locked(struct apple_z2 *z2, u8 report,
 	if (error)
 		return error;
 	apple_z2_post_z2_xfer_delay(z2);
-	dev_dbg(&z2->spidev->dev, "%s long read len=%u\n", tag,
-		data_len);
+	dev_dbg(&z2->spidev->dev, "%s long read len=%u\n", tag, data_len);
 
 	return 0;
 }
@@ -962,7 +980,7 @@ static int apple_z2_store_surface_descriptor(struct apple_z2 *z2, u16 len)
 
 static int apple_z2_iphone7_plus_init_locked(struct apple_z2 *z2)
 {
-	static const u8 enable_reports[] = { 0 };
+	static const u8 disable_legacy_reports[] = { 0 };
 	u16 surface_len;
 	u8 status;
 	int error;
@@ -989,14 +1007,17 @@ static int apple_z2_iphone7_plus_init_locked(struct apple_z2 *z2)
 	if (error)
 		return error;
 
-	error = apple_z2_write_report_locked(z2, 0xaf, enable_reports,
-					     sizeof(enable_reports),
+	error = apple_z2_write_report_locked(z2, APPLE_Z2_REPORT_ENABLE,
+					     disable_legacy_reports,
+					     sizeof(disable_legacy_reports),
 					     "iphone7-plus-af");
-	if (!error)
-		dev_dbg(&z2->spidev->dev,
-			"iPhone 7 Plus report initialization complete\n");
+	if (error)
+		return error;
 
-	return error;
+	dev_dbg(&z2->spidev->dev,
+		"iPhone 7 Plus report initialization complete\n");
+
+	return 0;
 }
 
 static int apple_z2_j172_init_reads_locked(struct apple_z2 *z2)
@@ -1951,6 +1972,12 @@ static int apple_z2_upload_firmware(struct apple_z2 *z2)
 			z2->booted = true;
 			error = apple_z2_read_packet(z2);
 		}
+		if (!error && apple_z2_is_d11(z2) &&
+		    (!z2->runtime_frame_valid ||
+		     z2->rx_buf[5] != APPLE_Z2_D11_STATUS_REPORT))
+			error = -EPROTO;
+		if (!error && apple_z2_is_d11(z2))
+			error = apple_z2_enable_d11_reports_locked(z2);
 		mutex_unlock(&z2->io_lock);
 		return error;
 	}
