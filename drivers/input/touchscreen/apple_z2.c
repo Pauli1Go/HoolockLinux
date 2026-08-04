@@ -2226,6 +2226,7 @@ static int apple_z2_probe(struct spi_device *spi)
 	struct device *dev = &spi->dev;
 	const struct apple_z2_chip_info *info;
 	struct apple_z2 *z2;
+	unsigned int mt_flags = INPUT_MT_DIRECT;
 	unsigned int slots;
 	int cal_size;
 	int error;
@@ -2358,13 +2359,16 @@ static int apple_z2_probe(struct spi_device *spi)
 	input_set_abs_params(z2->input_dev, ABS_MT_ORIENTATION, -32768, 32767,
 			     0, 0);
 
-	if (apple_z2_is_j172(z2))
+	if (apple_z2_is_j172(z2)) {
 		slots = APPLE_Z2_J172_MAX_CONTACTS;
-	else if (apple_z2_is_iphone7_plus(z2))
+	} else if (apple_z2_is_iphone7_plus(z2)) {
 		slots = 10;
-	else
+		if (apple_z2_is_d11(z2))
+			mt_flags |= INPUT_MT_DROP_UNUSED;
+	} else {
 		slots = 256;
-	error = input_mt_init_slots(z2->input_dev, slots, INPUT_MT_DIRECT);
+	}
+	error = input_mt_init_slots(z2->input_dev, slots, mt_flags);
 	if (error)
 		return dev_err_probe(dev, error,
 				     "unable to initialize multitouch slots\n");
