@@ -509,8 +509,9 @@ static void apple_z2_dispatch_frame(struct apple_z2 *z2, const u8 *payload,
 }
 
 static bool apple_z2_gen2_packet_valid(const u8 *buf, size_t buf_len,
-				       u8 counter)
+				       u8 counter, bool strict_counter)
 {
+	bool counter_valid;
 	u16 payload_len;
 	u16 checksum;
 	int i;
@@ -518,9 +519,11 @@ static bool apple_z2_gen2_packet_valid(const u8 *buf, size_t buf_len,
 	if (buf_len < 7)
 		return false;
 
+	counter_valid = strict_counter ? buf[1] == counter :
+					buf[1] == 1 || buf[1] == 2;
 	payload_len = get_unaligned_le16(buf + 2);
 	if (((buf[0] + buf[1] + buf[2] + buf[3] + buf[4]) & 0xff) ||
-	    (buf[0] & 0xfe) != 0xea || buf[1] != counter ||
+	    (buf[0] & 0xfe) != 0xea || !counter_valid ||
 	    payload_len < 2 || payload_len + 5 > buf_len)
 		return false;
 
@@ -534,6 +537,7 @@ static bool apple_z2_gen2_packet_valid(const u8 *buf, size_t buf_len,
 static int apple_z2_read_packet(struct apple_z2 *z2)
 {
 	struct spi_transfer xfer = { };
+	bool strict_counter;
 	int error;
 	size_t pkt_len;
 	size_t wire_len;
@@ -583,14 +587,19 @@ static int apple_z2_read_packet(struct apple_z2 *z2)
 	if (apple_z2_is_iphone7_plus(z2))
 		apple_z2_post_z2_xfer_delay(z2);
 
+	/* D11 touch reports do not follow the requested alternating tag. */
+	strict_counter = !apple_z2_is_d11(z2) ||
+			 (pkt_len > 5 && z2->rx_buf[5] ==
+					 0x50);
 	z2->runtime_frame_valid =
-		apple_z2_gen2_packet_valid(z2->rx_buf, pkt_len, counter);
-	if (z2->runtime_frame_valid) {
-		payload_len = get_unaligned_le16(z2->rx_buf + 2);
-		apple_z2_dispatch_frame(z2, z2->rx_buf + 5,
-					payload_len - 2);
-		z2->index_parity = !z2->index_parity;
-	}
+		apple_z2_gen2_packet_valid(z2->rx_buf, pkt_len, counter,
+					   strict_counter);
+	if (!z2->runtime_frame_valid)
+		return 0;
+
+	payload_len = get_unaligned_le16(z2->rx_buf + 2);
+	apple_z2_dispatch_frame(z2, z2->rx_buf + 5, payload_len - 2);
+	z2->index_parity = !z2->index_parity;
 
 	return 0;
 }
