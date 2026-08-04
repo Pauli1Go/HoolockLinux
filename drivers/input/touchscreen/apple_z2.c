@@ -50,6 +50,8 @@
 #define APPLE_Z2_CMD_WAKE                0xEE
 #define APPLE_Z2_CMD_SIZE                16
 #define APPLE_Z2_RAW_XFER_MAX_SIZE       64
+#define APPLE_Z2_GEN2_MIN_RESULT_SIZE    64
+#define APPLE_Z2_RUNTIME_DIAG_LIMIT       8
 #define APPLE_Z2_HBPP_CMD_BLOB           0x3001
 #define APPLE_Z2_FW_MAGIC                0x5746325A
 #define APPLE_Z2_RX_BUF_SIZE             4000
@@ -128,6 +130,7 @@ struct apple_z2 {
 	bool runtime_irq_logged;
 	bool runtime_frame_logged;
 	bool runtime_error_logged;
+	unsigned int runtime_diag_count;
 	enum apple_z2_protocol_state protocol_state;
 	unsigned int boot_irq_count;
 	unsigned int bpw16_min_len;
@@ -538,8 +541,13 @@ static bool apple_z2_gen2_packet_valid(const u8 *buf, size_t buf_len,
 static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 {
 	struct spi_transfer xfer = { };
+	u8 reply[APPLE_Z2_CMD_SIZE];
+	bool irq_line_level = false;
+	bool frame_valid;
 	int error;
+	int irq_state_error;
 	size_t pkt_len;
+	size_t wire_len;
 	u16 payload_len;
 	u8 counter;
 
@@ -558,8 +566,21 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 	if (error)
 		return error;
 	apple_z2_post_z2_xfer_delay(z2);
+	memcpy(reply, z2->rx_buf, sizeof(reply));
 
 	if (z2->rx_buf[0] != APPLE_Z2_REPLY_INTERRUPT_DATA) {
+		if (z2->runtime_diag_count < APPLE_Z2_RUNTIME_DIAG_LIMIT) {
+			irq_state_error =
+				irq_get_irqchip_state(z2->spidev->irq,
+						      IRQCHIP_STATE_LINE_LEVEL,
+						      &irq_line_level);
+			dev_info(&z2->spidev->dev,
+				 "runtime read %u (%s): reply=%16phN result=none irq-state=%d level=%u\n",
+				 z2->runtime_diag_count + 1,
+				 from_irq ? "irq" : "ready", reply,
+				 irq_state_error, irq_line_level);
+			z2->runtime_diag_count++;
+		}
 		if (from_irq && !z2->runtime_error_logged) {
 			dev_warn(&z2->spidev->dev,
 				 "runtime IRQ returned no packet: reply=%#02x counter=%u\n",
@@ -574,12 +595,16 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 		dev_warn(&z2->spidev->dev, "packet too large: %zu\n", pkt_len);
 		return -EMSGSIZE;
 	}
+	wire_len = pkt_len;
+	if (apple_z2_is_d11(z2))
+		wire_len = max_t(size_t, wire_len,
+				 APPLE_Z2_GEN2_MIN_RESULT_SIZE);
 
 	if (apple_z2_is_j172(z2) || apple_z2_is_iphone7_plus(z2)) {
-		memset(z2->rx_buf, 0xa5, pkt_len);
+		memset(z2->rx_buf, 0xa5, wire_len);
 		xfer.tx_buf = z2->rx_buf;
 		xfer.rx_buf = z2->rx_buf;
-		xfer.len = pkt_len;
+		xfer.len = wire_len;
 		error = spi_sync_transfer(z2->spidev, &xfer, 1);
 	} else {
 		error = spi_read(z2->spidev, z2->rx_buf, pkt_len);
@@ -589,8 +614,21 @@ static int apple_z2_read_packet(struct apple_z2 *z2, bool from_irq)
 	if (apple_z2_is_iphone7_plus(z2))
 		apple_z2_post_z2_xfer_delay(z2);
 
-	z2->runtime_frame_valid =
-		apple_z2_gen2_packet_valid(z2->rx_buf, pkt_len, counter);
+	frame_valid = apple_z2_gen2_packet_valid(z2->rx_buf, pkt_len, counter);
+	z2->runtime_frame_valid = frame_valid;
+	if (z2->runtime_diag_count < APPLE_Z2_RUNTIME_DIAG_LIMIT) {
+		irq_state_error =
+			irq_get_irqchip_state(z2->spidev->irq,
+					      IRQCHIP_STATE_LINE_LEVEL,
+					      &irq_line_level);
+		dev_info(&z2->spidev->dev,
+			 "runtime read %u (%s): reply=%16phN packet=%zu wire=%zu valid=%u irq-state=%d level=%u data=%*phN\n",
+			 z2->runtime_diag_count + 1, from_irq ? "irq" : "ready",
+			 reply, pkt_len, wire_len, frame_valid, irq_state_error,
+			 irq_line_level, (int)min_t(size_t, wire_len,
+			 APPLE_Z2_GEN2_MIN_RESULT_SIZE), z2->rx_buf);
+		z2->runtime_diag_count++;
+	}
 	if (z2->runtime_frame_valid) {
 		payload_len = get_unaligned_le16(z2->rx_buf + 2);
 		if (!z2->runtime_frame_logged) {
@@ -620,6 +658,7 @@ static void apple_z2_reset_protocol(struct apple_z2 *z2)
 	z2->runtime_irq_logged = false;
 	z2->runtime_frame_logged = false;
 	z2->runtime_error_logged = false;
+	z2->runtime_diag_count = 0;
 	z2->surface_descriptor_valid = false;
 	z2->boot_irq_count = 0;
 }
