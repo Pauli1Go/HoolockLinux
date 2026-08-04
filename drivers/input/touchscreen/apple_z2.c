@@ -1493,6 +1493,7 @@ static const u8 *apple_z2_build_iphone7_cal(struct apple_z2 *z2,
 	u8 *cal_data;
 	int cal_size;
 	size_t padded_size;
+	size_t words;
 	size_t blob_size;
 	u32 checksum;
 	u16 header_checksum;
@@ -1509,7 +1510,8 @@ static const u8 *apple_z2_build_iphone7_cal(struct apple_z2 *z2,
 		return ERR_PTR(-E2BIG);
 
 	padded_size = round_up((size_t)cal_size, sizeof(__le32));
-	if (padded_size / sizeof(__le32) - 1 > U16_MAX)
+	words = padded_size / sizeof(__le32);
+	if (words > U16_MAX)
 		return ERR_PTR(-E2BIG);
 	blob_size = 12 + padded_size + sizeof(__le32);
 	u8 *blob_data __free(kfree) = kzalloc(blob_size, GFP_KERNEL);
@@ -1518,7 +1520,8 @@ static const u8 *apple_z2_build_iphone7_cal(struct apple_z2 *z2,
 
 	put_unaligned_be16(0x18e1, blob_data);
 	put_unaligned_be16(APPLE_Z2_HBPP_CMD_BLOB, blob_data + 2);
-	put_unaligned_be16(padded_size / sizeof(__le32) - 1, blob_data + 4);
+	/* HBPP 0x103 encodes the full number of four-byte payload words. */
+	put_unaligned_be16(words, blob_data + 4);
 	put_unaligned_be16(address, blob_data + 6);
 	put_unaligned_be16(address >> 16, blob_data + 8);
 	header_checksum = 0;
