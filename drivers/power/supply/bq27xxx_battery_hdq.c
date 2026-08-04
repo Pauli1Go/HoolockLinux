@@ -26,7 +26,7 @@ static int F_ID;
 module_param(F_ID, int, S_IRUSR);
 MODULE_PARM_DESC(F_ID, "1-wire slave FID for BQ27xxx device");
 
-static const enum power_supply_property bq27545_d111_cache_props[] = {
+static const enum power_supply_property bq27545_iphone7_plus_cache_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
@@ -108,10 +108,12 @@ static int bq27xxx_battery_hdq_add_slave(struct w1_slave *sl)
 		di->cache_only = true;
 		di->cache_refresh_ms = 30000;
 		if (of_device_is_compatible(sl->dev.of_node,
+					    "apple,d11-bq27545") ||
+		    of_device_is_compatible(sl->dev.of_node,
 					    "apple,d111-bq27545")) {
-			di->cache_properties = bq27545_d111_cache_props;
+			di->cache_properties = bq27545_iphone7_plus_cache_props;
 			di->num_cache_properties =
-				ARRAY_SIZE(bq27545_d111_cache_props);
+				ARRAY_SIZE(bq27545_iphone7_plus_cache_props);
 			di->cache_use_remaining_capacity = true;
 		}
 	} else {
@@ -144,6 +146,7 @@ static const struct w1_family_ops bq27xxx_battery_hdq_fops = {
 };
 
 static const struct of_device_id bq27xxx_battery_hdq_of_match[] = {
+	{ .compatible = "apple,d11-bq27545", .data = (void *)BQ27545 },
 	{ .compatible = "apple,d111-bq27545", .data = (void *)BQ27545 },
 	{ .compatible = "ti,bq27545-hdq", .data = (void *)BQ27545 },
 	{ }
