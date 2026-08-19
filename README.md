@@ -14,7 +14,7 @@
 | Wi-Fi | Working, including station and AP modes | Working in station mode; AP mode not working |
 | Bluetooth | Working; RF calibration remains open | Working; RF calibration remains open |
 | Integrated Speakers | Not yet implemented | Not yet implemented |
-| Auto Brightness (ambient light) | Not yet implemented | Working |
+| Auto Brightness (ambient light) | Working | Working |
 | Auto Rotation | Not yet implemented | Not yet implemented |
 | Fake Home Button | - | Not yet implemented |
 | GPU | Not yet implemented | Not yet implemented |
