@@ -640,10 +640,10 @@ config TSL2583_KUNIT_TEST
 	depends on KUNIT
 	default KUNIT_ALL_TESTS
 	help
-	  Build tests for the CT821 factory-calibration gain-factor parser,
-	  including rejection of zero and overflowing gain factors from LSCI.
-	  These tests do not require hardware. If built as a module, it will be
-	  called tsl2583-test.
+	  Build tests for the Apple CT819 and CT821 factory-calibration
+	  gain-factor parser, including rejection of zero and overflowing gain
+	  factors from LSCI. These tests do not require hardware. If built as a
+	  module, it will be called tsl2583-test.
 
 config TSL2591
         tristate "TAOS TSL2591 ambient light sensor"

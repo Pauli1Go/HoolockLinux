@@ -10,8 +10,8 @@ maintainers:
   - Brian Masney <masneyb@onstation.org>
 
 description: |
-  Ambient light sensing with an i2c interface. Apple CT821 factory
-  calibration is stored in SysCfg. On systems where the SysCfg NVMEM
+  Ambient light sensing with an i2c interface. The Apple CT819 and CT821
+  factory calibration is stored in SysCfg. On systems where the SysCfg NVMEM
   provider is created by boot firmware, the static board tree omits the
   NVMEM link and firmware adds both NVMEM properties before kernel handoff.
 
@@ -23,7 +23,9 @@ properties:
           - amstaos,tsl2581
           - amstaos,tsl2583
       - items:
-          - const: apple,ct821
+          - enum:
+              - apple,ct819
+              - apple,ct821
           - const: amstaos,tsl2581
 
   reg:
@@ -37,9 +39,9 @@ properties:
 
   nvmem-cells:
     description:
-      Apple CT821 factory LSCI ambient-light calibration data. Boot firmware
-      must populate this together with nvmem-cell-names when the provider is
-      not statically representable.
+      Apple factory LSCI ambient-light calibration data. Boot firmware must
+      populate this together with nvmem-cell-names when the provider is not
+      statically representable.
     maxItems: 1
 
   nvmem-cell-names:
@@ -55,7 +57,9 @@ allOf:
       properties:
         compatible:
           contains:
-            const: apple,ct821
+            enum:
+              - apple,ct819
+              - apple,ct821
     then:
       dependentRequired:
         nvmem-cells:
