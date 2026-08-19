@@ -11,6 +11,7 @@
  * calibration record. The record stores the sensitivity of one gain step
  * relative to the previous one, so the factors have to be folded together.
  */
+#define CT819_CAL_RATIO_SCALE 256
 #define CT821_CAL_RATIO_SCALE 255
 
 static inline int apple_als_calculate_gain_factor(u32 previous, u16 ratio,

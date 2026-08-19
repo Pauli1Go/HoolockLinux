@@ -84,6 +84,10 @@
 #define APPLE_ALS_LUX_FUDGE_SCALE	255
 #define APPLE_ALS_MAX_GAIN_COUNT	8
 
+#define CT819_CAL_RECORD_SIZE_V2	0x40
+#define CT819_CAL_GAIN_COUNT		4
+#define CT819_CAL_RATIO_OFF		0x30
+
 #define CT821_CAL_RECORD_SIZE_V3	0x54
 #define CT821_CAL_RECORD_DATA_SIZE_V3	0x52
 #define CT821_CAL_GAIN_COUNT		8
@@ -174,7 +178,8 @@ struct gainadj {
  *			write to this command instead of the TSL258x
  *			special function
  * @cntl_enable:	extra CNTRL bits the part needs while measuring
- * @als_config:		part needs its analog frontend enabled explicitly
+ * @als_config:		part needs its analog frontend programmed explicitly
+ *			while the core is powered down
  * @cal_record_size:	size of the supported LSCI calibration record
  * @cal_record_len:	record length field of the supported record
  * @cal_gain_count:	number of gain steps described by that record
@@ -210,6 +215,18 @@ static const struct gainadj tsl2583_gainadj[] = {
 	{ 8, 8, 8 },
 	{ 16, 16, 16 },
 	{ 107, 115, 111 }
+};
+
+/*
+ * The CT819 uses the TSL2581 gain register and its four gain steps. The
+ * nominal factors below only select the step; the exact per-device gain comes
+ * from the LSCI calibration record.
+ */
+static const struct gainadj ct819_gainadj[] = {
+	{ 1, 1, 1 },
+	{ 8, 8, 8 },
+	{ 16, 16, 16 },
+	{ 128, 128, 128 },
 };
 
 static const struct gainadj ct821_gainadj[] = {
@@ -785,7 +802,7 @@ static int tsl2583_chip_init_and_power_on(struct iio_dev *indio_dev)
 		chip->needs_reinit = true;
 
 	/* Power on the device; ADC off. */
-	ret = tsl2583_set_power_state(chip, chip->info->apple ?
+	ret = tsl2583_set_power_state(chip, chip->info->als_config ?
 				      TSL2583_CNTL_PWR_OFF : TSL2583_CNTL_PWR_ON);
 	if (ret < 0)
 		return ret;
@@ -1058,6 +1075,9 @@ done:
 }
 
 static IIO_CONST_ATTR(in_illuminance_calibscale_available, "1 8 16 111");
+static IIO_CONST_ATTR_NAMED(in_illuminance_calibscale_available_ct819,
+			   in_illuminance_calibscale_available,
+			   "1 8 16 128");
 static IIO_CONST_ATTR_NAMED(in_illuminance_calibscale_available_ct821,
 			   in_illuminance_calibscale_available,
 			   "1 2 4 8 16 32 64 140");
@@ -1076,6 +1096,12 @@ static struct attribute *sysfs_attrs_ctrl[] = {
 	NULL
 };
 
+static struct attribute *ct819_sysfs_attrs_ctrl[] = {
+	&iio_const_attr_in_illuminance_calibscale_available_ct819.dev_attr.attr,
+	&iio_const_attr_in_illuminance_integration_time_available.dev_attr.attr,
+	NULL
+};
+
 static struct attribute *ct821_sysfs_attrs_ctrl[] = {
 	&iio_const_attr_in_illuminance_calibscale_available_ct821.dev_attr.attr,
 	&iio_const_attr_in_illuminance_integration_time_available.dev_attr.attr,
@@ -1084,6 +1110,10 @@ static struct attribute *ct821_sysfs_attrs_ctrl[] = {
 
 static const struct attribute_group tsl2583_attribute_group = {
 	.attrs = sysfs_attrs_ctrl,
+};
+
+static const struct attribute_group ct819_attribute_group = {
+	.attrs = ct819_sysfs_attrs_ctrl,
 };
 
 static const struct attribute_group ct821_attribute_group = {
@@ -1311,6 +1341,12 @@ static const struct iio_info tsl2583_info = {
 	.write_raw = tsl2583_write_raw,
 };
 
+static const struct iio_info ct819_iio_info = {
+	.attrs = &ct819_attribute_group,
+	.read_raw = tsl2583_read_raw,
+	.write_raw = tsl2583_write_raw,
+};
+
 static const struct iio_info ct821_iio_info = {
 	.attrs = &ct821_attribute_group,
 	.read_raw = tsl2583_read_raw,
@@ -1324,6 +1360,29 @@ static const struct tsl2583_chip_info tsl2583_chip_info = {
 	.default_als_time = 100,
 	.default_als_gain = 0,
 	.gain_reg = TSL2583_GAIN,
+	.integration_cycle_us = TSL2583_INTEGRATION_CYCLE_US,
+};
+
+/*
+ * Apart from the LSCI calibration and the lux computation the CT819 behaves
+ * like a plain TSL2581: it keeps the gain in the TSL258x gain register,
+ * clears the ALS interrupt through the TSL258x special function and needs no
+ * extra control or analog frontend programming.
+ */
+static const struct tsl2583_chip_info ct819_chip_info = {
+	.gainadj = ct819_gainadj,
+	.num_gainadj = ARRAY_SIZE(ct819_gainadj),
+	.iio_info = &ct819_iio_info,
+	.default_als_time = 400,
+	.default_als_gain = 1,
+	.apple = true,
+	.gain_reg = TSL2583_GAIN,
+	.cal_version = 2,
+	.cal_record_size = CT819_CAL_RECORD_SIZE_V2,
+	.cal_record_len = CT819_CAL_RECORD_SIZE_V2,
+	.cal_gain_count = CT819_CAL_GAIN_COUNT,
+	.cal_ratio_off = CT819_CAL_RATIO_OFF,
+	.cal_ratio_scale = CT819_CAL_RATIO_SCALE,
 	.integration_cycle_us = TSL2583_INTEGRATION_CYCLE_US,
 };
 
@@ -1475,6 +1534,7 @@ static const struct i2c_device_id tsl2583_idtable[] = {
 MODULE_DEVICE_TABLE(i2c, tsl2583_idtable);
 
 static const struct of_device_id tsl2583_of_match[] = {
+	{ .compatible = "apple,ct819", .data = &ct819_chip_info },
 	{ .compatible = "apple,ct821", .data = &ct821_chip_info },
 	{ .compatible = "amstaos,tsl2580", .data = &tsl2583_chip_info },
 	{ .compatible = "amstaos,tsl2581", .data = &tsl2583_chip_info },
