@@ -46,6 +46,41 @@ static void ct821_gain_factor_overflow_test(struct kunit *test)
 							&factor));
 }
 
+static void ct819_gain_factor_valid_test(struct kunit *test)
+{
+	u32 factor;
+
+	/*
+	 * The gain ratios of the factory record of an iPad 7 fold into the
+	 * nominal 8x, 16x and 128x gain steps of the part.
+	 */
+	KUNIT_ASSERT_EQ(test, 0,
+			apple_als_calculate_gain_factor(65536, 2010,
+							CT819_CAL_RATIO_SCALE,
+							&factor));
+	KUNIT_EXPECT_EQ(test, 514560U, factor);
+	KUNIT_ASSERT_EQ(test, 0,
+			apple_als_calculate_gain_factor(factor, 521,
+							CT819_CAL_RATIO_SCALE,
+							&factor));
+	KUNIT_EXPECT_EQ(test, 1047210U, factor);
+	KUNIT_ASSERT_EQ(test, 0,
+			apple_als_calculate_gain_factor(factor, 1862,
+							CT819_CAL_RATIO_SCALE,
+							&factor));
+	KUNIT_EXPECT_EQ(test, 7616816U, factor);
+}
+
+static struct kunit_case ct819_gain_factor_test_cases[] = {
+	KUNIT_CASE(ct819_gain_factor_valid_test),
+	{}
+};
+
+static struct kunit_suite ct819_gain_factor_test_suite = {
+	.name = "ct819-gain-factor",
+	.test_cases = ct819_gain_factor_test_cases,
+};
+
 static struct kunit_case ct821_gain_factor_test_cases[] = {
 	KUNIT_CASE(ct821_gain_factor_valid_test),
 	KUNIT_CASE(ct821_gain_factor_zero_test),
@@ -58,7 +93,8 @@ static struct kunit_suite ct821_gain_factor_test_suite = {
 	.test_cases = ct821_gain_factor_test_cases,
 };
 
-kunit_test_suite(ct821_gain_factor_test_suite);
+kunit_test_suites(&ct819_gain_factor_test_suite,
+		  &ct821_gain_factor_test_suite);
 
-MODULE_DESCRIPTION("KUnit tests for the CT821 calibration gain factors");
+MODULE_DESCRIPTION("KUnit tests for the Apple ALS calibration gain factors");
 MODULE_LICENSE("GPL");
