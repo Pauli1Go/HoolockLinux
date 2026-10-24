@@ -34,6 +34,10 @@ seventh-generation iPad (`iPad7,12` / J172) and the iPhone 7 Plus
 
 ## iPad 7
 
+<img src="docs/images/ipad7-debian-desktop.jpeg" alt="Debian desktop running on the tested iPad 7, with Wi-Fi and AirPods connected" width="640">
+
+*Debian desktop on the tested iPad 7 (J172), with Wi-Fi and Bluetooth connected.*
+
 ### Current state
 
 The cellular iPad 7 boots Debian from internal NVMe storage and provides a
@@ -87,6 +91,10 @@ Linux driver or loader. Range, transmit power, receive sensitivity, and RF
 performance must therefore not yet be considered fully calibrated.
 
 ## iPhone 7
+
+<img src="docs/images/iphone7plus-debian-desktop.jpeg" alt="Debian desktop running on the tested iPhone 7 Plus, showing Wi-Fi, Bluetooth and charging status" width="360">
+
+*Debian desktop on the tested iPhone 7 Plus (D111), showing Wi-Fi, Bluetooth and charging status.*
 
 ### Current state
 
